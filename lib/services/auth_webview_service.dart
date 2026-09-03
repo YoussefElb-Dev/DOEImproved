@@ -4,12 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../core/theme/app_theme.dart';
+import 'grade_data_service.dart';
 import 'native_cookie_bridge.dart';
 
 /// Handles the NYC Public Schools SSO flow (TeachHub / SAML) inside an
 /// embedded WebView, captures the authenticated session cookies — first via
-/// the native cookie jar (includes HttpOnly), falling back to JS
-/// document.cookie — and persists them with flutter_secure_storage.
+/// the native cookie jar (which includes HttpOnly cookies), falling back to
+/// `document.cookie` — and persists them with `flutter_secure_storage`.
 class AuthWebViewService {
   static const String portalUrl = 'https://teachhub.schools.nyc';
   static const String _sessionKey = 'doe_session_cookies';
@@ -17,65 +19,87 @@ class AuthWebViewService {
 
   final FlutterSecureStorage _storage;
   final WebViewCookieManager _cookieManager;
+  final GradeDataService _probe;
 
   final void Function(Map<String, String> cookies)? onAuthenticated;
   final void Function(String error)? onAuthError;
+  final void Function(bool busy)? onBusyChanged;
 
   late final WebViewController controller;
+
+  /// Guards against re-entrant capture while a validation probe is running.
+  bool _capturing = false;
+  bool _completed = false;
 
   AuthWebViewService({
     FlutterSecureStorage? storage,
     WebViewCookieManager? cookieManager,
+    GradeDataService? probe,
     this.onAuthenticated,
     this.onAuthError,
+    this.onBusyChanged,
   })  : _storage = storage ?? const FlutterSecureStorage(),
-        _cookieManager = cookieManager ?? WebViewCookieManager() {
+        _cookieManager = cookieManager ?? WebViewCookieManager(),
+        _probe = probe ?? GradeDataService() {
     controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(AppColors.background)
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageFinished: _handlePageFinished,
-          onWebResourceError: (error) =>
-              onAuthError?.call(error.description),
+          onPageStarted: (_) => onBusyChanged?.call(true),
+          onPageFinished: (url) async {
+            onBusyChanged?.call(false);
+            await _handlePageFinished(url);
+          },
+          onWebResourceError: (error) {
+            onBusyChanged?.call(false);
+            // Sub-resource failures are noise; only surface main-frame ones.
+            if (error.isForMainFrame ?? false) {
+              onAuthError?.call(error.description);
+            }
+          },
         ),
       );
   }
 
   Future<void> start() => controller.loadRequest(Uri.parse(portalUrl));
 
-  /// After a page loads, check whether the SSO redirect has landed on an
-  /// authenticated host and, if so, harvest the session cookies.
-  Future<void> _handlePageFinished(String url) async {
-    final uri = Uri.tryParse(url);
-    if (uri == null) return;
-    final isAuthenticated = uri.host.endsWith('schools.nyc') &&
-        !uri.path.toLowerCase().contains('login') &&
-        !uri.path.toLowerCase().contains('saml');
-    if (!isAuthenticated) return;
+  Future<void> reload() => controller.reload();
 
-    final cookies = await captureCookies();
-    if (cookies.isNotEmpty) {
+  /// After each page load, try to harvest cookies and prove they actually
+  /// work. Guessing from the URL alone is unreliable — the portal's pre-login
+  /// landing page lives on the same host — so a captured session is only
+  /// accepted once the dashboard answers to it.
+  Future<void> _handlePageFinished(String url) async {
+    if (_completed || _capturing) return;
+    final uri = Uri.tryParse(url);
+    if (uri == null || !uri.host.toLowerCase().endsWith('schools.nyc')) return;
+
+    _capturing = true;
+    try {
+      final cookies = await captureCookies();
+      if (cookies.isEmpty) return;
+
+      final valid = await _probe.validateSession(cookies);
+      if (!valid) return;
+
       await saveSession(cookies);
+      _completed = true;
       onAuthenticated?.call(cookies);
+    } finally {
+      _capturing = false;
     }
   }
 
   /// Captures the authenticated session cookies. Prefers the native cookie
-  /// jar (includes HttpOnly SSO tokens invisible to JS); falls back to
-  /// document.cookie when the platform channel is unavailable.
+  /// jar (which includes the HttpOnly SSO tokens invisible to JavaScript) and
+  /// falls back to `document.cookie` when the platform channel is unavailable.
   Future<Map<String, String>> captureCookies() async {
-    // 1) Native jar — authoritative, includes HttpOnly.
     final native = await NativeCookieBridge.getCookies(portalUrl);
-    if (native.isNotEmpty) {
-      // Merge in any non-HttpOnly cookies JS can see, too.
-      final js = await _captureViaJavaScript();
-      if (js.isNotEmpty) {
-        return {...js, ...native};
-      }
-      return native;
-    }
-    // 2) Fallback: document.cookie (misses HttpOnly).
-    return _captureViaJavaScript();
+    final js = await _captureViaJavaScript();
+    if (native.isEmpty) return js;
+    // Native wins on conflict — it sees the authoritative jar.
+    return {...js, ...native};
   }
 
   Future<Map<String, String>> _captureViaJavaScript() async {
@@ -109,7 +133,8 @@ class AuthWebViewService {
     final raw = await _storage.read(key: _sessionKey);
     if (raw == null) return {};
     try {
-      return Map<String, String>.from(jsonDecode(raw) as Map);
+      final decoded = jsonDecode(raw) as Map;
+      return decoded.map((k, v) => MapEntry('$k', '$v'));
     } catch (_) {
       return {};
     }
@@ -121,7 +146,10 @@ class AuthWebViewService {
   }
 
   Future<void> clearSession() async {
+    // Clear both the plugin jar and the native one, so signing out does not
+    // leave a live SSO cookie behind for the next person on the device.
     await _cookieManager.clearCookies();
+    await NativeCookieBridge.clearCookies();
     await _storage.delete(key: _sessionKey);
     await _storage.delete(key: _sessionTimestampKey);
   }
@@ -139,25 +167,63 @@ class AuthWebViewScreen extends StatefulWidget {
 
 class _AuthWebViewScreenState extends State<AuthWebViewScreen> {
   late final AuthWebViewService _auth;
+  bool _busy = true;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
     _auth = AuthWebViewService(
       onAuthenticated: widget.onAuthenticated,
-      onAuthError: (e) => debugPrint('Auth error: $e'),
+      onAuthError: (e) {
+        if (mounted) setState(() => _error = e);
+      },
+      onBusyChanged: (b) {
+        if (mounted) setState(() => _busy = b);
+      },
     )..start();
   }
 
   @override
   Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
     return Scaffold(
-      backgroundColor: const Color(0xFF0D0F12),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         title: const Text('Sign in with NYCAPS'),
         centerTitle: true,
+        actions: [
+          IconButton(
+            tooltip: 'Reload',
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: () {
+              setState(() => _error = null);
+              _auth.reload();
+            },
+          ),
+        ],
+        bottom: _busy
+            ? const PreferredSize(
+                preferredSize: Size.fromHeight(2),
+                child: LinearProgressIndicator(minHeight: 2),
+              )
+            : null,
       ),
-      body: WebViewWidget(controller: _auth.controller),
+      body: Column(
+        children: [
+          if (_error != null)
+            Container(
+              width: double.infinity,
+              color: AppColors.gradeDF.withValues(alpha: 0.12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Text(
+                'Could not reach the portal: $_error',
+                style: tt.bodySmall?.copyWith(color: AppColors.gradeDF),
+              ),
+            ),
+          Expanded(child: WebViewWidget(controller: _auth.controller)),
+        ],
+      ),
     );
   }
 }

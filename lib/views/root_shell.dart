@@ -19,52 +19,49 @@ class RootShell extends ConsumerStatefulWidget {
 class _RootShellState extends ConsumerState<RootShell> {
   int _index = 0;
 
-  final _screens = const [
+  static const _screens = [
     GradesTab(),
     ScheduleTab(),
     WorkTab(),
     SettingsTab(),
   ];
 
+  static const _items = [
+    (icon: Icons.grade_rounded, label: 'Grades'),
+    (icon: Icons.calendar_month_rounded, label: 'Schedule'),
+    (icon: Icons.assignment_rounded, label: 'Work'),
+    (icon: Icons.settings_rounded, label: 'Settings'),
+  ];
+
   @override
   Widget build(BuildContext context) {
+    // A rejected session drops the cookies, which sends AuthGate back to login.
+    listenForExpiredSession(ref);
+
     final syncing = ref.watch(syncIndicatorProvider);
+
     return Scaffold(
+      extendBody: true,
       body: IndexedStack(index: _index, children: _screens),
       bottomNavigationBar: GlassContainer(
         padding: EdgeInsets.zero,
         borderRadius: 0,
         child: SafeArea(
+          top: false,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _NavItem(
-                  icon: Icons.grade_rounded,
-                  label: 'Grades',
-                  active: _index == 0,
-                  syncing: syncing,
-                  onTap: () => setState(() => _index = 0),
-                ),
-                _NavItem(
-                  icon: Icons.calendar_month_rounded,
-                  label: 'Schedule',
-                  active: _index == 1,
-                  onTap: () => setState(() => _index = 1),
-                ),
-                _NavItem(
-                  icon: Icons.assignment_rounded,
-                  label: 'Work',
-                  active: _index == 2,
-                  onTap: () => setState(() => _index = 2),
-                ),
-                _NavItem(
-                  icon: Icons.settings_rounded,
-                  label: 'Settings',
-                  active: _index == 3,
-                  onTap: () => setState(() => _index = 3),
-                ),
+                for (final (i, item) in _items.indexed)
+                  _NavItem(
+                    icon: item.icon,
+                    label: item.label,
+                    active: _index == i,
+                    // Only the Grades tab carries the sync badge.
+                    syncing: syncing && i == 0,
+                    onTap: () => setState(() => _index = i),
+                  ),
               ],
             ),
           ),
@@ -85,8 +82,8 @@ class _NavItem extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.active,
-    this.syncing = false,
     required this.onTap,
+    this.syncing = false,
   });
 
   @override
@@ -95,22 +92,30 @@ class _NavItem extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: active
+              ? AppColors.gradeB.withValues(alpha: 0.10)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Stack(
               clipBehavior: Clip.none,
               children: [
-                Icon(icon, color: color, size: 24),
-                if (syncing && label == 'Grades')
+                Icon(icon, color: color, size: 23),
+                if (syncing)
                   Positioned(
                     right: -2,
                     top: -2,
                     child: Container(
-                      width: 8,
-                      height: 8,
+                      width: 7,
+                      height: 7,
                       decoration: const BoxDecoration(
                         shape: BoxShape.circle,
                         color: AppColors.gradeA,

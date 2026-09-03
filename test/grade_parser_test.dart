@@ -46,6 +46,7 @@ void main() {
     <span class="earned">160</span>
     <span class="total">200</span>
   </div>
+  <table><tbody>
   <tr class="assignment" data-assignment="a1">
     <td class="assignment-title">Rotational Motion Test</td>
     <td class="category">Tests</td>
@@ -53,6 +54,7 @@ void main() {
     <td class="max">100</td>
     <td class="status">graded</td>
   </tr>
+  </tbody></table>
 </body></html>''';
 
   test('parseProfile extracts profile fields', () {

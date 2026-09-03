@@ -6,15 +6,25 @@ permissions:
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 env:
   FLUTTER_VERSION: '3.27.0'
+  XCODE_VERSION: '15.4'
+  BUNDLE_ORG: 'com.doeimproved'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build_ipa:
     name: Build unsigned IPA
     runs-on: macos-14
+    timeout-minutes: 40
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,39 +34,72 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
+          cache: true
 
       - name: Set up Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '15.4'
-
-      - name: Generate iOS platform files
-        run: flutter create --platforms ios --project-name doe_improved .
+          xcode-version: ${{ env.XCODE_VERSION }}
 
       - name: Pub get
         run: flutter pub get
 
+      # The Xcode project is generated rather than committed, so the repo stays
+      # free of a 20k-line pbxproj. Anything hand-written lives in ios_native/
+      # and is copied over the generated template in the next step.
+      - name: Generate iOS platform files
+        run: |
+          flutter create \
+            --platforms ios \
+            --project-name doe_improved \
+            --org "${BUNDLE_ORG}" \
+            .
+
+      - name: Apply native iOS sources
+        run: |
+          set -euo pipefail
+          cp ios_native/Runner/AppDelegate.swift ios/Runner/AppDelegate.swift
+          cp ios_native/Runner/Info.plist        ios/Runner/Info.plist
+
+          # The cookie channel is what makes live portal data possible — if the
+          # overlay silently failed to apply, fail the build instead of
+          # shipping an app that can never sign in.
+          grep -q 'doe_improved/cookies' ios/Runner/AppDelegate.swift
+          grep -q 'NSPhotoLibraryUsageDescription' ios/Runner/Info.plist
+          echo "Native iOS overlay applied."
+
+      - name: Verify bundle identifier
+        run: |
+          set -euo pipefail
+          expected="${BUNDLE_ORG}.doeImproved"
+          actual=$(grep -m1 'PRODUCT_BUNDLE_IDENTIFIER = ' ios/Runner.xcodeproj/project.pbxproj \
+            | sed 's/.*PRODUCT_BUNDLE_IDENTIFIER = //; s/;.*//')
+          echo "bundle id: ${actual} (expected ${expected})"
+          test "${actual}" = "${expected}"
+
       - name: Generate launcher icons
         run: dart run flutter_launcher_icons
 
-      - name: Analyze (non-fatal)
-        run: flutter analyze --no-fatal-infos
-        continue-on-error: true
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
       - name: Run tests
-        run: flutter test
-        continue-on-error: true
+        run: flutter test --reporter expanded
 
       - name: Build iOS (unsigned)
         run: flutter build ios --release --no-codesign
 
       - name: Package unsigned IPA
+        id: package
         run: |
+          set -euo pipefail
           cd build/ios/Release-iphoneos
           mkdir -p Payload
           cp -R Runner.app Payload/
-          zip -r DOEImproved.ipa Payload
-          echo "IPA size: $(du -h DOEImproved.ipa | cut -f1)"
+          zip -qry DOEImproved.ipa Payload
+          size=$(du -h DOEImproved.ipa | cut -f1)
+          echo "size=${size}" >> "$GITHUB_OUTPUT"
+          echo "IPA size: ${size}"
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
@@ -65,3 +108,21 @@ jobs:
           path: build/ios/Release-iphoneos/DOEImproved.ipa
           compression-level: 9
           retention-days: 30
+
+      - name: Build summary
+        if: always()
+        run: |
+          {
+            echo "### DOEImproved — unsigned iOS build"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Flutter | ${FLUTTER_VERSION} |"
+            echo "| Xcode | ${XCODE_VERSION} |"
+            echo "| Bundle id | ${BUNDLE_ORG}.doeImproved |"
+            echo "| IPA size | ${{ steps.package.outputs.size || 'n/a' }} |"
+            echo "| Commit | \`${GITHUB_SHA:0:7}\` |"
+            echo ""
+            echo "The IPA is unsigned — install with a sideloading tool that "
+            echo "re-signs it (AltStore, Sideloadly) or resign it yourself."
+          } >> "$GITHUB_STEP_SUMMARY"

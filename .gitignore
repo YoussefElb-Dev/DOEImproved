@@ -44,3 +44,6 @@ app.*.map.json
 *.keystore
 key.properties
 **/secrets/
+# Build outputs
+/dist/
+*.ipa

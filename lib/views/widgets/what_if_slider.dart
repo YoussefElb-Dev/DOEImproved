@@ -43,7 +43,10 @@ class _WhatIfSliderState extends State<WhatIfSlider> {
         ),
       ],
     );
-    final delta = projected - widget.course.currentScore;
+    // Compare against the recomputed average, not the portal's printed score,
+    // so the delta always matches the number the projection is derived from.
+    final baseline = widget.calculator.calculateCourseAverage(widget.course);
+    final delta = projected - baseline;
     final projectedLetter =
         widget.calculator.letterGradeFor(projected);
     final color = AppColors.forLetterGrade(projectedLetter);
