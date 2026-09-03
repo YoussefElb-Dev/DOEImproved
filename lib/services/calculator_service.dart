@@ -1,4 +1,5 @@
 import '../models/grade_models.dart';
+import 'grade_scale.dart';
 
 /// Core grade math. Recalculates category-weighted course averages and
 /// supports real-time "What-If" projections with hypothetical assignments.
@@ -56,13 +57,9 @@ class CalculatorService {
     return null;
   }
 
-  String letterGradeFor(double score) {
-    if (score >= 90) return 'A';
-    if (score >= 80) return 'B';
-    if (score >= 70) return 'C';
-    if (score >= 65) return 'D';
-    return 'F';
-  }
+  /// Delegates to [GradeScale] so the app has one definition of the NYC
+  /// grade boundaries rather than two that can drift apart.
+  String letterGradeFor(double score) => GradeScale.letterFor(score);
 
   double _weightedAverage(List<GradeCategory> categories) {
     double weightedSum = 0;

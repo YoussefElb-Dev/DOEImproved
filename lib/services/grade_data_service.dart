@@ -37,9 +37,32 @@ class GradeDataService {
         'Accept-Language': 'en-US,en;q=0.9',
       };
 
-  Future<http.Response> _get(String path, Map<String, String> cookies) async {
+  /// Resolves a path or link found on a portal page against [baseUrl].
+  ///
+  /// Returns null for anything that would leave the portal's own domain. The
+  /// session cookie is attached to every request this class makes, so an
+  /// off-site link — whether a legitimate outbound link or one injected into
+  /// the page — must never be followed.
+  static Uri? resolve(String pathOrUrl) {
+    final uri = Uri.tryParse(pathOrUrl.trim());
+    if (uri == null) return null;
+    final resolved = Uri.parse(baseUrl).resolveUri(uri);
+    if (resolved.scheme != 'https') return null;
+    if (!resolved.host.toLowerCase().endsWith('schools.nyc')) return null;
+    return resolved;
+  }
+
+  Future<http.Response> _get(String path, Map<String, String> cookies) {
+    final uri = resolve(path);
+    if (uri == null) {
+      throw PortalUnreachableException('Refusing to follow off-portal link.');
+    }
+    return _getUri(uri, cookies);
+  }
+
+  Future<http.Response> _getUri(Uri uri, Map<String, String> cookies) async {
     final res = await _client
-        .get(Uri.parse('$baseUrl$path'), headers: _headers(cookies))
+        .get(uri, headers: _headers(cookies))
         .timeout(
           timeout,
           onTimeout: () => throw PortalUnreachableException(
@@ -90,9 +113,15 @@ class GradeDataService {
     Map<String, String> cookies,
   ) async {
     final stub = out[index];
-    if (stub.id.isEmpty) return;
+    // Prefer the link the portal itself published; `/courses/{id}` is only a
+    // guess at a URL layout, and schools differ.
+    final path = stub.detailPath?.isNotEmpty == true
+        ? stub.detailPath!
+        : (stub.id.isEmpty ? null : '/courses/${stub.id}');
+    if (path == null) return;
+
     try {
-      final detail = await _get('/courses/${stub.id}', cookies);
+      final detail = await _get(path, cookies);
       final parsed = _parser.parseCourseDetail(detail.body);
       out[index] = stub.copyWith(
         categories: parsed.categories,

@@ -104,6 +104,11 @@ class Course {
   final List<GradeCategory> categories;
   final List<Assignment> assignments;
 
+  /// The portal's own link to this course's gradebook, when it published one.
+  /// Followed verbatim, because detail URLs differ between portals; the
+  /// `/courses/{id}` convention is only the fallback.
+  final String? detailPath;
+
   const Course({
     required this.id,
     required this.title,
@@ -113,6 +118,7 @@ class Course {
     required this.letterGrade,
     required this.categories,
     required this.assignments,
+    this.detailPath,
   });
 
   /// Grade boundaries on the standard NYC scale.
@@ -141,6 +147,7 @@ class Course {
     String? letterGrade,
     List<GradeCategory>? categories,
     List<Assignment>? assignments,
+    String? detailPath,
   }) =>
       Course(
         id: id,
@@ -151,5 +158,6 @@ class Course {
         letterGrade: letterGrade ?? this.letterGrade,
         categories: categories ?? this.categories,
         assignments: assignments ?? this.assignments,
+        detailPath: detailPath ?? this.detailPath,
       );
 }

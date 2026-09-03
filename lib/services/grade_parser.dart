@@ -1,308 +1,564 @@
-import 'package:html/parser.dart' as html_parser;
-import 'package:html/dom.dart' show Element, Node;
-
 import '../models/grade_models.dart';
 import '../models/schedule_models.dart';
+import 'grade_scale.dart';
+import 'parsing/field_map.dart';
+import 'parsing/records.dart';
+import 'parsing/values.dart';
 
-/// Parses NYC student-portal grade pages (HTML fetched with the
-/// authenticated session) into typed models.
+/// Turns portal pages into typed models.
 ///
-/// Selector coverage targets the common portal layouts; unknown structures
-/// degrade gracefully to empty results instead of throwing.
+/// The parser makes no assumptions about a school's markup. It locates the
+/// data by structure (tables, repeated cards, JSON arrays) and identifies
+/// columns by their *labels* and the *shape of their values* — headers, `<dt>`
+/// terms, JSON keys, `data-` attributes, `aria-label`s, and descriptive class
+/// names as a hint. Nothing depends on a specific CSS class existing, so a
+/// school that names its columns differently still parses, and a portal that
+/// switches from HTML to a JSON API keeps working.
+///
+/// Anything that cannot be understood degrades to an empty result rather than
+/// throwing.
 class GradeParser {
   const GradeParser();
 
-  /// Parses a profile block from the dashboard page.
-  StudentProfile? parseProfile(String html) {
-    final doc = html_parser.parse(html);
-    final nameEl = doc
-        .querySelector('.student-name, #studentName, [data-field="student-name"]');
-    if (nameEl == null) return null;
-    final root = doc.documentElement!;
-    final gpa = _num(root, '.gpa-value, [data-field="gpa"]');
-    final change = _num(root, '.gpa-change, [data-field="gpa-change"]');
-    final credits = _num(root, '.credits, [data-field="credits"]');
-    final rank = doc.querySelector('.class-rank, [data-field="rank"]');
-    final school = doc.querySelector('.school-name, [data-field="school"]');
+  // ── profile ─────────────────────────────────────────────────────────
+
+  /// Reads the student header from a dashboard. Returns null only when the
+  /// page yielded nothing identifiable at all.
+  StudentProfile? parseProfile(String body) {
+    final doc = PortalDocument.parse(body);
+    final values = doc.extractLabeledValues(FieldMatcher.profileField);
+
+    final name = values[SemanticField.studentName] ?? _headingName(doc);
+    final school = values[SemanticField.schoolName] ?? '';
+    final gpa = _gpaValue(values[SemanticField.gpa]);
+    final change = parseNumber(values[SemanticField.gpaChange] ?? '') ?? 0;
+    final credits = parseNumber(values[SemanticField.totalCredits] ?? '') ?? 0;
+    final rank = parsePeriod(values[SemanticField.classRank] ?? '') ??
+        parseNumber(values[SemanticField.classRank] ?? '')?.toInt() ??
+        0;
+
+    if ((name == null || name.isEmpty) &&
+        school.isEmpty &&
+        gpa == 0 &&
+        credits == 0) {
+      return null;
+    }
+
     return StudentProfile(
-      name: nameEl.text.trim(),
-      schoolName: school?.text.trim() ?? '',
-      avatarUrl: doc.querySelector('.avatar img')?.attributes['src'] ?? '',
+      name: name ?? 'Student',
+      schoolName: school,
+      avatarUrl: doc.findImageUrl(const ['avatar', 'photo', 'profile', 'student']),
       overallGpa: gpa,
       gpaChange: change,
       totalCredits: credits,
-      classRank:
-          int.tryParse(rank?.text.replaceAll(RegExp(r'[^0-9]'), '') ?? '') ??
-              0,
+      classRank: rank,
     );
   }
 
-  /// Parses a course list page into [Course] stubs (detail fetched later).
-  List<Course> parseCourseList(String html) {
-    final doc = html_parser.parse(html);
-    final rows = doc.querySelectorAll(
-        '.course-row, tr.course, [data-course], .gradebook-course');
+  /// GPA is quoted on several scales (4.0, 5.0, 100). Anything above 10 is a
+  /// percentage-style average, which the hero card would misrender as a GPA.
+  double _gpaValue(String? raw) {
+    final n = parseNumber(raw ?? '');
+    if (n == null || n < 0) return 0;
+    return n > 10 ? 0 : n;
+  }
+
+  String? _headingName(PortalDocument doc) {
+    for (final heading in doc.headings()) {
+      if (looksLikePersonName(heading)) return heading;
+    }
+    return null;
+  }
+
+  // ── courses ─────────────────────────────────────────────────────────
+
+  /// Course stubs from a dashboard or roster. Detail pages are fetched
+  /// separately using each stub's [Course.detailPath].
+  List<Course> parseCourseList(String body) {
+    final doc = PortalDocument.parse(body);
+    final sets = doc.extractRecordSets(FieldMatcher.courseRow);
+
+    final chosen = selectRecordSet(
+          sets,
+          mustHave: {SemanticField.courseTitle, SemanticField.letterGrade},
+          prefer: _courseFields,
+        ) ??
+        selectRecordSet(
+          sets,
+          mustHave: {SemanticField.courseTitle, SemanticField.score},
+          prefer: _courseFields,
+        ) ??
+        selectRecordSet(
+          sets,
+          mustHave: {SemanticField.courseTitle},
+          prefer: _courseFields,
+        );
+    if (chosen == null) return const [];
+
     final out = <Course>[];
-    for (final row in rows) {
-      final id = row.attributes['data-course'] ??
-          row.attributes['data-id'] ??
-          row.attributes['id'] ??
-          '';
-      final title = row
-              .querySelector('.course-title, .course-name, td:first-child')
-              ?.text
-              .trim() ??
-          'Course';
-      final teacher = row
-              .querySelector('.teacher, .teacher-name, [data-field="teacher"]')
-              ?.text
-              .trim() ??
-          '';
-      final scoreText = row
-              .querySelector('.score, .average, [data-field="average"]')
-              ?.text ??
-          '';
-      final score =
-          double.tryParse(scoreText.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
-      final letter = row
-              .querySelector('.letter-grade, [data-field="letter"]')
-              ?.text
-              .trim() ??
-          '';
+    for (var i = 0; i < chosen.records.length; i++) {
+      final r = chosen.records[i];
+      final title = r[SemanticField.courseTitle];
+      if (title == null) continue;
+
+      final letter = parseLetterGrade(r[SemanticField.letterGrade] ?? '') ?? '';
+      final score = parseScore(r[SemanticField.score] ?? '') ??
+          (letter.isEmpty ? null : GradeScale.scoreFor(letter)) ??
+          0;
+
       out.add(Course(
-        id: id,
+        id: r.id ?? 'c$i',
         title: title,
-        code: '',
-        teacherName: teacher,
+        code: r[SemanticField.courseCode] ?? '',
+        teacherName: r[SemanticField.teacher] ?? '',
         currentScore: score,
-        letterGrade: letter,
+        letterGrade: letter.isNotEmpty
+            ? letter
+            : (score > 0 ? GradeScale.letterFor(score) : ''),
         categories: const [],
         assignments: const [],
+        detailPath: r.link,
       ));
     }
     return out;
   }
 
-  /// Parses a course detail page: categories + assignments.
+  static const Set<SemanticField> _courseFields = {
+    SemanticField.score,
+    SemanticField.letterGrade,
+    SemanticField.teacher,
+    SemanticField.courseCode,
+    SemanticField.term,
+    SemanticField.room,
+  };
+
+  // ── course detail ───────────────────────────────────────────────────
+
+  /// Weighted categories and the assignment history for one course.
+  ///
+  /// Assignments are located first because they are the more distinctive shape
+  /// (a title plus points); categories are then taken from a *different*
+  /// structure on the page. When a gradebook publishes only assignments,
+  /// categories are synthesised from them so the What-If projection still
+  /// works.
   ({List<GradeCategory> categories, List<Assignment> assignments})
-      parseCourseDetail(String html) {
-    final doc = html_parser.parse(html);
-    final categories = <GradeCategory>[];
-    final assignments = <Assignment>[];
+      parseCourseDetail(String body) {
+    final doc = PortalDocument.parse(body);
 
-    final assignmentRows =
-        doc.querySelectorAll('.assignment, tr.assignment, [data-assignment]');
+    final assignmentSets = doc.extractRecordSets(FieldMatcher.assignmentRow);
+    final assignmentSet = selectRecordSet(
+          assignmentSets,
+          mustHave: {SemanticField.assignmentTitle, SemanticField.pointsPossible},
+          prefer: _assignmentFields,
+        ) ??
+        selectRecordSet(
+          assignmentSets,
+          mustHave: {SemanticField.assignmentTitle, SemanticField.score},
+          prefer: _assignmentFields,
+        ) ??
+        selectRecordSet(
+          assignmentSets,
+          mustHave: {SemanticField.assignmentTitle},
+          prefer: _assignmentFields,
+        );
 
-    for (final el in doc
-        .querySelectorAll('.category, [data-category-row], .weight-row')) {
-      // An assignment row carries its own `.category` cell naming the category
-      // it belongs to. That is a label, not a grade category of its own.
-      if (assignmentRows.any((row) => _isInside(row, el))) continue;
+    final assignments = _toAssignments(assignmentSet);
 
-      final name =
-          el.querySelector('.category-name, .name')?.text.trim() ?? 'Other';
-      final weight = _num(el, '.weight, [data-field="weight"]');
-      final earned = _num(el, '.earned, [data-field="earned"]');
-      final total = _num(el, '.total, [data-field="total"]');
+    final categorySets = doc
+        .extractRecordSets(FieldMatcher.categoryRow)
+        .where((s) => s.origin != assignmentSet?.origin)
+        .toList();
+    final categorySet = selectRecordSet(
+          categorySets,
+          mustHave: {SemanticField.category, SemanticField.weight},
+          prefer: _categoryFields,
+        ) ??
+        selectRecordSet(
+          categorySets,
+          mustHave: {SemanticField.category, SemanticField.pointsPossible},
+          prefer: _categoryFields,
+        );
 
-      // No weight and no points means nothing to weigh or show — skip it
-      // rather than rendering an empty row in the breakdown.
-      if (weight <= 0 && total <= 0 && earned <= 0) continue;
-
-      categories.add(GradeCategory(
-          name: name,
-          weightPercentage: weight,
-          earnedPoints: earned,
-          totalPoints: total));
+    var categories = _toCategories(categorySet);
+    if (categories.isEmpty && assignments.isNotEmpty) {
+      categories = _synthesizeCategories(assignments);
     }
 
-    var i = 0;
-    for (final el in assignmentRows) {
-      final title = el
-              .querySelector('.assignment-title, .title, td:first-child')
-              ?.text
-              .trim() ??
-          'Assignment ${++i}';
-      final category =
-          el.querySelector('.category, [data-field="category"]')?.text.trim() ??
-              'Other';
-      final score = _num(el, '.score, [data-field="score"]');
-      final max = _num(el, '.max, .points-possible, [data-field="max"]');
-      final statusText =
-          el.querySelector('.status, [data-field="status"]')?.text.trim() ?? '';
-      final status = AssignmentStatus.values.firstWhere(
-        (s) => statusText.toLowerCase().contains(s.name),
-        orElse: () => AssignmentStatus.graded,
-      );
-      assignments.add(Assignment(
-        id: el.attributes['data-assignment'] ?? 'a$i',
-        title: title,
-        category: category,
-        score: score,
-        maxScore: max,
-        dueDate: DateTime.now(),
-        status: status,
-      ));
-    }
     return (categories: categories, assignments: assignments);
   }
 
-  /// Parses the schedule page. Returns [DaySchedule.unavailable] when the
-  /// school hasn't posted a schedule for the day.
-  DaySchedule parseSchedule(String html, DateTime date) {
-    final doc = html_parser.parse(html);
-    final body = doc.body?.text.toLowerCase() ?? '';
-    if (body.contains('not available') ||
-        body.contains('no schedule') ||
-        body.contains('schedule not posted')) {
+  static const Set<SemanticField> _assignmentFields = {
+    SemanticField.pointsEarned,
+    SemanticField.pointsPossible,
+    SemanticField.score,
+    SemanticField.category,
+    SemanticField.dueDate,
+    SemanticField.status,
+    SemanticField.letterGrade,
+  };
+
+  static const Set<SemanticField> _categoryFields = {
+    SemanticField.weight,
+    SemanticField.pointsEarned,
+    SemanticField.pointsPossible,
+    SemanticField.score,
+  };
+
+  List<GradeCategory> _toCategories(RecordSet? set) {
+    if (set == null) return const [];
+    final out = <GradeCategory>[];
+    for (final r in set.records) {
+      final name = r[SemanticField.category];
+      if (name == null) continue;
+
+      final weight = parseNumber(r[SemanticField.weight] ?? '') ?? 0;
+      var earned = parseNumber(r[SemanticField.pointsEarned] ?? '') ?? 0;
+      var possible = parseNumber(r[SemanticField.pointsPossible] ?? '') ?? 0;
+
+      // "84/100" in a single cell.
+      final fraction = _fractionIn(r);
+      if (possible <= 0 && fraction != null) {
+        earned = fraction.earned;
+        possible = fraction.possible;
+      }
+      // A score column alongside a total means the score *is* the earned
+      // points; a score on its own is a percentage, which becomes points out
+      // of 100 so the weighting maths downstream stays uniform.
+      final pct = parseScore(r[SemanticField.score] ?? '');
+      if (earned <= 0 && pct != null) {
+        if (possible > 0) {
+          earned = pct <= possible ? pct : possible;
+        } else {
+          earned = pct;
+          possible = 100;
+        }
+      }
+
+      if (weight <= 0 && possible <= 0) continue;
+      out.add(GradeCategory(
+        name: name,
+        weightPercentage: weight,
+        earnedPoints: earned,
+        totalPoints: possible,
+      ));
+    }
+    return out;
+  }
+
+  List<Assignment> _toAssignments(RecordSet? set) {
+    if (set == null) return const [];
+    final out = <Assignment>[];
+    var i = 0;
+    for (final r in set.records) {
+      final title = r[SemanticField.assignmentTitle];
+      if (title == null) continue;
+      i++;
+
+      var earned = parseNumber(r[SemanticField.pointsEarned] ?? '') ?? 0;
+      var possible = parseNumber(r[SemanticField.pointsPossible] ?? '') ?? 0;
+
+      final fraction = _fractionIn(r);
+      if (possible <= 0 && fraction != null) {
+        earned = fraction.earned;
+        possible = fraction.possible;
+      }
+      // Same reading as categories: "78" next to a max of 100 is 78 points,
+      // while "78" with no max is 78 percent.
+      final pct = parseScore(r[SemanticField.score] ?? '');
+      if (earned <= 0 && pct != null) {
+        if (possible > 0) {
+          earned = pct <= possible ? pct : possible;
+        } else {
+          earned = pct;
+          possible = 100;
+        }
+      }
+
+      final statusText =
+          '${r[SemanticField.status] ?? ''} ${r[SemanticField.letterGrade] ?? ''}';
+      out.add(Assignment(
+        id: r.id ?? 'a$i',
+        title: title,
+        category: r[SemanticField.category] ?? 'Other',
+        score: earned,
+        maxScore: possible > 0 ? possible : 100,
+        dueDate: parseDate(r[SemanticField.dueDate] ?? '') ?? DateTime.now(),
+        status: _statusFor(statusText, graded: possible > 0),
+      ));
+    }
+    return out;
+  }
+
+  /// Groups assignments into categories weighted by points possible, which
+  /// reproduces a total-points gradebook exactly — the common default when a
+  /// portal publishes no weights of its own.
+  List<GradeCategory> _synthesizeCategories(List<Assignment> assignments) {
+    final earned = <String, double>{};
+    final possible = <String, double>{};
+    for (final a in assignments) {
+      if (a.status != AssignmentStatus.graded || a.maxScore <= 0) continue;
+      earned[a.category] = (earned[a.category] ?? 0) + a.score;
+      possible[a.category] = (possible[a.category] ?? 0) + a.maxScore;
+    }
+    if (possible.isEmpty) return const [];
+
+    final totalPossible = possible.values.fold<double>(0, (s, v) => s + v);
+    return [
+      for (final name in possible.keys)
+        GradeCategory(
+          name: name,
+          weightPercentage: totalPossible <= 0
+              ? 0
+              : possible[name]! / totalPossible * 100,
+          earnedPoints: earned[name] ?? 0,
+          totalPoints: possible[name]!,
+        ),
+    ];
+  }
+
+  AssignmentStatus _statusFor(String text, {required bool graded}) {
+    final t = text.toLowerCase();
+    if (t.contains('missing') || t.contains('not submitted') || t.contains('ns')) {
+      return AssignmentStatus.missing;
+    }
+    if (t.contains('pending') || t.contains('ungraded') || t.contains('in progress')) {
+      return AssignmentStatus.pending;
+    }
+    if (t.contains('upcoming') || t.contains('not due') || t.contains('assigned')) {
+      return AssignmentStatus.upcoming;
+    }
+    return graded ? AssignmentStatus.graded : AssignmentStatus.pending;
+  }
+
+  ({double earned, double possible})? _fractionIn(PortalRecord r) {
+    for (final cell in r.cells) {
+      final f = parseFraction(cell);
+      if (f != null) return f;
+    }
+    return null;
+  }
+
+  // ── schedule ────────────────────────────────────────────────────────
+
+  /// The day's periods. Returns [DaySchedule.unavailable] when the school has
+  /// posted nothing.
+  DaySchedule parseSchedule(String body, DateTime date) {
+    final doc = PortalDocument.parse(body);
+    final sets = doc.extractRecordSets(FieldMatcher.scheduleRow);
+
+    final chosen = selectRecordSet(
+          sets,
+          mustHave: {SemanticField.courseTitle, SemanticField.period},
+          prefer: _scheduleFields,
+        ) ??
+        selectRecordSet(
+          sets,
+          mustHave: {SemanticField.courseTitle, SemanticField.timeRange},
+          prefer: _scheduleFields,
+        ) ??
+        selectRecordSet(
+          sets,
+          mustHave: {SemanticField.courseTitle},
+          prefer: _scheduleFields,
+        );
+
+    if (chosen == null) {
       return DaySchedule.unavailable(date);
     }
-    final label = doc
-            .querySelector('.day-label, .bell-day, [data-field="day-label"]')
-            ?.text
-            .trim() ??
-        'Today';
-    final rows = doc.querySelectorAll(
-        '.period-row, tr.period, [data-period], .schedule-row');
-    if (rows.isEmpty) return DaySchedule.unavailable(date);
+    if (readsAsUnavailable(doc.text) && chosen.records.length < 2) {
+      return DaySchedule.unavailable(date);
+    }
 
     final periods = <ScheduleEntry>[];
-    for (final row in rows) {
-      final period = int.tryParse(row
-                  .querySelector('.period-num, td:first-child')
-                  ?.text
-                  .replaceAll(RegExp(r'[^0-9]'), '') ??
-              '') ??
-          0;
-      final course =
-          row.querySelector('.period-course, .course-name')?.text.trim() ?? '';
-      final teacher =
-          row.querySelector('.period-teacher, .teacher')?.text.trim() ?? '';
-      final room =
-          row.querySelector('.period-room, .room')?.text.trim() ?? '';
-      final timeText =
-          row.querySelector('.period-time, .time')?.text.trim() ?? '';
-      final (start, end) = _parseTimeRange(timeText, date);
+    var fallbackPeriod = 0;
+    for (final r in chosen.records) {
+      final title = r[SemanticField.courseTitle];
+      if (title == null) continue;
+      fallbackPeriod++;
+
+      final range = _timeRangeIn(r, date);
       periods.add(ScheduleEntry(
-        period: period,
-        courseTitle: course,
-        teacherName: teacher,
-        room: room,
-        startTime: start,
-        endTime: end,
+        period: parsePeriod(r[SemanticField.period] ?? '') ?? fallbackPeriod,
+        courseTitle: title,
+        teacherName: r[SemanticField.teacher] ?? '',
+        room: r[SemanticField.room] ?? '',
+        startTime: range?.start ?? date,
+        endTime: range?.end ?? date,
       ));
     }
-    return DaySchedule(date: date, label: label, periods: periods);
+    if (periods.isEmpty) return DaySchedule.unavailable(date);
+
+    periods.sort((a, b) => a.period.compareTo(b.period));
+    return DaySchedule(
+      date: date,
+      label: doc.dayLabel() ?? 'Today',
+      periods: periods,
+    );
   }
 
-  (DateTime, DateTime) _parseTimeRange(String text, DateTime date) {
-    final clean = text.replaceAll(RegExp(r'\s+'), ' ');
-    final parts = clean.split(RegExp(r'[-–—]'));
-    DateTime start = date, end = date;
-    if (parts.length == 2) {
-      start = _parseClock(parts[0], date) ?? date;
-      end = _parseClock(parts[1], date) ?? date;
+  static const Set<SemanticField> _scheduleFields = {
+    SemanticField.period,
+    SemanticField.timeRange,
+    SemanticField.teacher,
+    SemanticField.room,
+  };
+
+  ({DateTime start, DateTime end})? _timeRangeIn(PortalRecord r, DateTime day) {
+    final labelled = r[SemanticField.timeRange];
+    if (labelled != null) {
+      final parsed = parseTimeRange(labelled, day);
+      if (parsed != null) return parsed;
     }
-    return (start, end);
-  }
-
-  DateTime? _parseClock(String t, DateTime date) {
-    final m = RegExp(r'(\d{1,2}):(\d{2})\s*(AM|PM)?', caseSensitive: false)
-        .firstMatch(t.trim());
-    if (m == null) return null;
-    var h = int.parse(m.group(1)!);
-    final min = int.parse(m.group(2)!);
-    final ap = m.group(3)?.toUpperCase();
-    if (ap == 'PM' && h < 12) h += 12;
-    if (ap == 'AM' && h == 12) h = 0;
-    return DateTime(date.year, date.month, date.day, h, min);
-  }
-
-  /// Parses the transcript page into [TranscriptRecord] rows.
-  /// Empty list = transcript currently unavailable.
-  List<TranscriptRecord> parseTranscript(String html) {
-    final doc = html_parser.parse(html);
-    final body = doc.body?.text.toLowerCase() ?? '';
-    if (body.contains('not available') || body.contains('no transcript')) {
-      return const [];
+    // Some portals put start and end in separate columns, or in with the room.
+    for (final cell in r.cells) {
+      final parsed = parseTimeRange(cell, day);
+      if (parsed != null) return parsed;
     }
-    final rows = doc.querySelectorAll(
-        '.transcript-row, tr.transcript, [data-transcript], .credit-row');
+    return parseTimeRange(r.text, day);
+  }
+
+  // ── transcript ──────────────────────────────────────────────────────
+
+  /// Completed courses. An empty list means the transcript is unavailable.
+  List<TranscriptRecord> parseTranscript(String body) {
+    final doc = PortalDocument.parse(body);
+    final sets = doc.extractRecordSets(FieldMatcher.transcriptRow);
+
+    // Credits or a term are what distinguish a transcript from a roster.
+    final chosen = selectRecordSet(
+          sets,
+          mustHave: {SemanticField.courseTitle, SemanticField.credits},
+          prefer: _transcriptFields,
+        ) ??
+        selectRecordSet(
+          sets,
+          mustHave: {SemanticField.courseTitle, SemanticField.term},
+          prefer: _transcriptFields,
+        ) ??
+        selectRecordSet(
+          sets,
+          mustHave: {SemanticField.courseTitle, SemanticField.letterGrade},
+          prefer: _transcriptFields,
+        );
+    if (chosen == null) return const [];
+
     final out = <TranscriptRecord>[];
-    for (final row in rows) {
-      final title =
-          row.querySelector('.course-title, td:nth-child(2)')?.text.trim() ??
-              '';
-      final code =
-          row.querySelector('.course-code, td:first-child')?.text.trim() ?? '';
-      final letter =
-          row.querySelector('.letter, .grade, [data-field="grade"]')?.text.trim() ??
-              '';
-      final credits = _num(row, '.credits, [data-field="credits"]');
-      final term =
-          row.querySelector('.term, [data-field="term"]')?.text.trim() ?? '';
-      final gpa = _num(row, '.gpa-points, [data-field="gpa"]');
-      final score = _num(row, '.final, [data-field="final"]');
-      if (title.isEmpty) continue;
+    for (final r in chosen.records) {
+      final title = r[SemanticField.courseTitle];
+      if (title == null) continue;
+
+      final letter = parseLetterGrade(r[SemanticField.letterGrade] ?? '') ?? '';
+      final score = parseScore(r[SemanticField.score] ?? '') ?? 0;
+      final credits = parseCredits(r[SemanticField.credits] ?? '') ?? 0;
+
+      // Prefer the school's own GPA points; derive them only when absent, and
+      // never for marks that carry no GPA weight.
+      final published = parseNumber(r[SemanticField.gpaPoints] ?? '');
+      final points = published ??
+          GradeScale.gpaPointsFor(
+            letter: letter.isEmpty ? null : letter,
+            score: score > 0 ? score : null,
+          ) ??
+          0;
+
       out.add(TranscriptRecord(
         courseTitle: title,
-        courseCode: code,
+        courseCode: r[SemanticField.courseCode] ?? '',
         finalScore: score,
-        letterGrade: letter,
+        letterGrade: letter.isNotEmpty
+            ? letter
+            : (score > 0 ? GradeScale.letterFor(score) : ''),
         creditsEarned: credits,
-        term: term,
-        gpaPoints: gpa,
+        term: r[SemanticField.term] ?? '',
+        gpaPoints: points,
       ));
     }
     return out;
   }
 
-  /// Parses an upcoming-work / assignments-due page.
-  List<WorkItem> parseWorkDue(String html) {
-    final doc = html_parser.parse(html);
-    final rows =
-        doc.querySelectorAll('.due-item, .work-row, [data-due], tr.due');
+  static const Set<SemanticField> _transcriptFields = {
+    SemanticField.letterGrade,
+    SemanticField.score,
+    SemanticField.credits,
+    SemanticField.term,
+    SemanticField.gpaPoints,
+    SemanticField.courseCode,
+  };
+
+  // ── upcoming work ───────────────────────────────────────────────────
+
+  /// Assignments due. An empty list means nothing was posted.
+  List<WorkItem> parseWorkDue(String body) {
+    final doc = PortalDocument.parse(body);
+    final sets = doc.extractRecordSets(FieldMatcher.workRow);
+
+    final chosen = selectRecordSet(
+          sets,
+          mustHave: {SemanticField.assignmentTitle, SemanticField.dueDate},
+          prefer: _workFields,
+        ) ??
+        selectRecordSet(
+          sets,
+          mustHave: {SemanticField.assignmentTitle, SemanticField.courseTitle},
+          prefer: _workFields,
+        );
+    if (chosen == null) return const [];
+
     final out = <WorkItem>[];
     var i = 0;
-    for (final row in rows) {
-      final title = row
-              .querySelector('.due-title, .title, td:first-child')
-              ?.text
-              .trim() ??
-          'Item ${++i}';
-      final course =
-          row.querySelector('.due-course, .course')?.text.trim() ?? '';
-      final type =
-          row.querySelector('.due-type, .type')?.text.trim().toLowerCase() ??
-              'homework';
-      final dueText = row.querySelector('.due-date, .due')?.text.trim() ?? '';
-      final due = DateTime.tryParse(dueText) ?? DateTime.now();
-      final submitted = row.querySelector('.submitted') != null;
-      final grade = row.querySelector('.due-grade, .grade')?.text.trim();
+    for (final r in chosen.records) {
+      final title = r[SemanticField.assignmentTitle];
+      if (title == null) continue;
+      i++;
+
+      final statusText = (r[SemanticField.status] ?? '').toLowerCase();
+      final submitted = statusText.contains('submitted') ||
+          statusText.contains('turned in') ||
+          statusText.contains('complete') ||
+          statusText.contains('done');
+
       out.add(WorkItem(
-        id: row.attributes['data-due'] ?? 'w$i',
+        id: r.id ?? 'w$i',
         title: title,
-        courseTitle: course,
-        type: type,
-        dueDate: due,
+        courseTitle: r[SemanticField.courseTitle] ?? '',
+        type: _workType(r, title),
+        dueDate: parseDate(r[SemanticField.dueDate] ?? '') ?? DateTime.now(),
         submitted: submitted,
-        grade: grade,
+        grade: r[SemanticField.letterGrade] ?? r[SemanticField.score],
       ));
     }
     return out;
   }
 
-  /// True when [node] sits anywhere beneath [ancestor].
-  bool _isInside(Element ancestor, Element node) {
-    for (Node? p = node.parentNode; p != null; p = p.parentNode) {
-      if (identical(p, ancestor)) return true;
-    }
-    return false;
-  }
+  static const Set<SemanticField> _workFields = {
+    SemanticField.dueDate,
+    SemanticField.courseTitle,
+    SemanticField.status,
+    SemanticField.itemType,
+    SemanticField.letterGrade,
+  };
 
-  double _num(Element root, String selector) {
-    final el = root.querySelector(selector);
-    if (el == null) return 0;
-    return double.tryParse(el.text.replaceAll(RegExp(r'[^0-9.-]'), '')) ?? 0;
+  /// Portals name work types inconsistently, and often not at all — so fall
+  /// back to reading the assignment's own title.
+  String _workType(PortalRecord r, String title) {
+    final declared = (r[SemanticField.itemType] ?? '').toLowerCase();
+    final haystack = '$declared ${title.toLowerCase()}';
+    if (haystack.contains('exam') ||
+        haystack.contains('test') ||
+        haystack.contains('midterm') ||
+        haystack.contains('final')) {
+      return 'test';
+    }
+    if (haystack.contains('quiz')) return 'quiz';
+    if (haystack.contains('project') || haystack.contains('presentation')) {
+      return 'project';
+    }
+    if (haystack.contains('essay') ||
+        haystack.contains('paper') ||
+        haystack.contains('dbq')) {
+      return 'essay';
+    }
+    if (haystack.contains('lab')) return 'lab';
+    return 'homework';
   }
 }
