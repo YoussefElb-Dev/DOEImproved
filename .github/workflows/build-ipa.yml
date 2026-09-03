@@ -36,6 +36,9 @@ jobs:
       - name: Pub get
         run: flutter pub get
 
+      - name: Generate launcher icons
+        run: dart run flutter_launcher_icons
+
       - name: Analyze (non-fatal)
         run: flutter analyze --no-fatal-infos
         continue-on-error: true

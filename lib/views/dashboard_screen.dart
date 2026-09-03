@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -77,15 +79,16 @@ class DashboardScreen extends ConsumerWidget {
 }
 
 /// Floating glassmorphism header: brand, avatar, pulsating sync dot.
-class _TopHeaderBar extends StatelessWidget {
+class _TopHeaderBar extends ConsumerWidget {
   final String avatarUrl;
   final bool syncing;
 
   const _TopHeaderBar({required this.avatarUrl, required this.syncing});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final tt = Theme.of(context).textTheme;
+    final localImage = ref.watch(profileImageProvider);
     return GlassContainer(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       borderRadius: 20,
@@ -106,7 +109,7 @@ class _TopHeaderBar extends StatelessWidget {
               ],
             ),
           ),
-          _Avatar(avatarUrl: avatarUrl),
+          _Avatar(avatarUrl: avatarUrl, localImagePath: localImage),
         ],
       ),
     );
@@ -169,10 +172,17 @@ class _SyncDotState extends State<_SyncDot>
 
 class _Avatar extends StatelessWidget {
   final String avatarUrl;
-  const _Avatar({required this.avatarUrl});
+  final String? localImagePath;
+  const _Avatar({required this.avatarUrl, this.localImagePath});
 
   @override
   Widget build(BuildContext context) {
+    if (localImagePath != null && localImagePath!.isNotEmpty) {
+      return CircleAvatar(
+        radius: 18,
+        backgroundImage: FileImage(File(localImagePath!)),
+      );
+    }
     if (avatarUrl.isNotEmpty) {
       return CircleAvatar(
         radius: 18,

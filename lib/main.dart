@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/theme/app_theme.dart';
 import 'services/auth_webview_service.dart';
-import 'views/dashboard_screen.dart';
+import 'views/root_shell.dart';
 
 void main() {
   runApp(const ProviderScope(child: DOEImprovedApp()));
@@ -61,7 +61,7 @@ class _AuthGateState extends State<AuthGate> {
       );
     }
     if (_authenticated) {
-      return const DashboardScreen();
+      return const RootShell();
     }
     return AuthWebViewScreen(
       onAuthenticated: (_) => setState(() => _authenticated = true),

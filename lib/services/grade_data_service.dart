@@ -1,6 +1,7 @@
 import 'package:http/http.dart' as http;
 
 import '../models/grade_models.dart';
+import '../models/schedule_models.dart';
 import 'grade_parser.dart';
 import 'native_cookie_bridge.dart';
 
@@ -52,6 +53,37 @@ class GradeDataService {
     return (profile: profile, courses: courses);
   }
 
+  /// Fetches today's class schedule. Returns [DaySchedule.unavailable]
+  /// when the school hasn't posted one yet.
+  Future<DaySchedule> fetchSchedule(Map<String, String> cookies, {DateTime? date}) {
+    final d = date ?? DateTime.now();
+    return _client
+        .get(Uri.parse('$baseUrl/students/schedule'), headers: _headers(cookies))
+        .then((res) {
+      _throwIfAuthRedirect(res);
+      return _parser.parseSchedule(res.body, d);
+    });
+  }
+
+  /// Fetches the student's transcript (completed courses).
+  Future<List<TranscriptRecord>> fetchTranscript(Map<String, String> cookies) =>
+      _client
+          .get(Uri.parse('$baseUrl/students/transcript'),
+              headers: _headers(cookies))
+          .then((res) {
+        _throwIfAuthRedirect(res);
+        return _parser.parseTranscript(res.body);
+      });
+
+  /// Fetches upcoming work (assignments due).
+  Future<List<WorkItem>> fetchWork(Map<String, String> cookies) => _client
+          .get(Uri.parse('$baseUrl/students/upcoming'),
+              headers: _headers(cookies))
+          .then((res) {
+        _throwIfAuthRedirect(res);
+        return _parser.parseWorkDue(res.body);
+      });
+
   void _throwIfAuthRedirect(http.Response res) {
     final uri = res.request?.url;
     final redirectedToLogin = res.isRedirect &&
@@ -60,6 +92,26 @@ class GradeDataService {
     if (redirectedToLogin || (res.statusCode == 401) || bodyHasLogin) {
       throw const AuthExpiredException('Session expired');
     }
+  }
+
+  /// "Documents" app: bell schedule. Null = not published yet.
+  Future<List<ScheduleEntry>?> fetchSchedule(Map<String, String> cookies) async {
+    final res = await _client.get(
+      Uri.parse('$baseUrl/students/schedule'),
+      headers: _headers(cookies),
+    );
+    _throwIfAuthRedirect(res);
+    return _parser.parseSchedule(res.body);
+  }
+
+  /// "Documents" app: transcript. Null = not published yet.
+  Future<List<TranscriptTerm>?> fetchTranscript(Map<String, String> cookies) async {
+    final res = await _client.get(
+      Uri.parse('$baseUrl/students/transcript'),
+      headers: _headers(cookies),
+    );
+    _throwIfAuthRedirect(res);
+    return _parser.parseTranscript(res.body);
   }
 
   void dispose() => _client.close();
