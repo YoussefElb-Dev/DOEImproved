@@ -85,6 +85,29 @@ void main() {
     expect(d.assignments[0].maxScore, 100);
   });
 
+  test('an assignment category cell is not read as a grade category', () {
+    final d = parser.parseCourseDetail(detailHtml);
+    // The assignment row carries <td class="category">Tests</td>, which the
+    // `.category` selector also matches. It must not become a third category.
+    expect(d.categories.map((c) => c.name).toList(), ['Tests', 'Homework']);
+    expect(d.assignments.single.category, 'Tests');
+  });
+
+  test('categories with no weight and no points are dropped', () {
+    const html = '''
+<html><body>
+  <div class="category">
+    <span class="category-name">Tests</span>
+    <span class="weight">100</span>
+    <span class="earned">80</span>
+    <span class="total">100</span>
+  </div>
+  <div class="category"><span class="category-name">Placeholder</span></div>
+</body></html>''';
+    final d = parser.parseCourseDetail(html);
+    expect(d.categories.map((c) => c.name).toList(), ['Tests']);
+  });
+
   test('parseCourseList returns empty on unknown markup', () {
     expect(parser.parseCourseList('<html><body></body></html>'), isEmpty);
   });

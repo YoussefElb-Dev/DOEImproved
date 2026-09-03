@@ -1,5 +1,5 @@
 import 'package:html/parser.dart' as html_parser;
-import 'package:html/dom.dart' show Element;
+import 'package:html/dom.dart' show Element, Node;
 
 import '../models/grade_models.dart';
 import '../models/schedule_models.dart';
@@ -90,13 +90,25 @@ class GradeParser {
     final categories = <GradeCategory>[];
     final assignments = <Assignment>[];
 
+    final assignmentRows =
+        doc.querySelectorAll('.assignment, tr.assignment, [data-assignment]');
+
     for (final el in doc
         .querySelectorAll('.category, [data-category-row], .weight-row')) {
+      // An assignment row carries its own `.category` cell naming the category
+      // it belongs to. That is a label, not a grade category of its own.
+      if (assignmentRows.any((row) => _isInside(row, el))) continue;
+
       final name =
           el.querySelector('.category-name, .name')?.text.trim() ?? 'Other';
       final weight = _num(el, '.weight, [data-field="weight"]');
       final earned = _num(el, '.earned, [data-field="earned"]');
       final total = _num(el, '.total, [data-field="total"]');
+
+      // No weight and no points means nothing to weigh or show — skip it
+      // rather than rendering an empty row in the breakdown.
+      if (weight <= 0 && total <= 0 && earned <= 0) continue;
+
       categories.add(GradeCategory(
           name: name,
           weightPercentage: weight,
@@ -105,8 +117,7 @@ class GradeParser {
     }
 
     var i = 0;
-    for (final el in doc
-        .querySelectorAll('.assignment, tr.assignment, [data-assignment]')) {
+    for (final el in assignmentRows) {
       final title = el
               .querySelector('.assignment-title, .title, td:first-child')
               ?.text
@@ -279,6 +290,14 @@ class GradeParser {
       ));
     }
     return out;
+  }
+
+  /// True when [node] sits anywhere beneath [ancestor].
+  bool _isInside(Element ancestor, Element node) {
+    for (Node? p = node.parentNode; p != null; p = p.parentNode) {
+      if (identical(p, ancestor)) return true;
+    }
+    return false;
   }
 
   double _num(Element root, String selector) {

@@ -1,4 +1,3 @@
-import 'package:doe_improved/core/theme/app_theme.dart';
 import 'package:doe_improved/models/grade_models.dart';
 import 'package:doe_improved/models/portal_snapshot.dart';
 import 'package:doe_improved/models/schedule_models.dart';
@@ -10,7 +9,6 @@ import 'package:doe_improved/views/work_tab.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Serves a fixed snapshot so screens render without a network, a session,
@@ -29,10 +27,15 @@ class _FakePortalController extends PortalController {
 
 void main() {
   setUp(() {
-    // No font downloads and no platform channels during tests.
-    GoogleFonts.config.allowRuntimeFetching = false;
+    // No platform channels during tests.
     SharedPreferences.setMockInitialValues({});
   });
+
+  // AppTheme is deliberately not used here: it builds its text theme through
+  // google_fonts, which throws when it can neither fetch nor find the font —
+  // an ambient failure that has nothing to do with what these tests check.
+  // Layout and colour come from AppColors constants either way.
+  final testTheme = ThemeData.dark(useMaterial3: true);
 
   const profile = StudentProfile(
     name: 'Jordan Alvarez',
@@ -69,7 +72,12 @@ void main() {
         overrides: [
           portalProvider.overrideWith(() => _FakePortalController(data)),
         ],
-        child: MaterialApp(theme: AppTheme.dark, home: screen),
+        child: MaterialApp(
+          theme: testTheme,
+          // Scaffold supplies the Material ancestor that ListTile and friends
+          // get from RootShell in the real app.
+          home: Scaffold(body: screen),
+        ),
       );
 
   /// Renders [screen], lets the async notifier and entry animations resolve,
