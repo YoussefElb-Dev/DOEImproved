@@ -94,26 +94,6 @@ class GradeDataService {
     }
   }
 
-  /// "Documents" app: bell schedule. Null = not published yet.
-  Future<List<ScheduleEntry>?> fetchSchedule(Map<String, String> cookies) async {
-    final res = await _client.get(
-      Uri.parse('$baseUrl/students/schedule'),
-      headers: _headers(cookies),
-    );
-    _throwIfAuthRedirect(res);
-    return _parser.parseSchedule(res.body);
-  }
-
-  /// "Documents" app: transcript. Null = not published yet.
-  Future<List<TranscriptTerm>?> fetchTranscript(Map<String, String> cookies) async {
-    final res = await _client.get(
-      Uri.parse('$baseUrl/students/transcript'),
-      headers: _headers(cookies),
-    );
-    _throwIfAuthRedirect(res);
-    return _parser.parseTranscript(res.body);
-  }
-
   void dispose() => _client.close();
 }
 

@@ -15,8 +15,7 @@ class GradeParser {
   /// Parses a profile block from the dashboard page.
   StudentProfile? parseProfile(String html) {
     final doc = html_parser.parse(html);
-    final nameEl = doc
-        .querySelector('.student-name, #studentName, [data-field="student-name"]');
+    final nameEl = doc.querySelector('.student-name, #studentName, [data-field="student-name"]');
     if (nameEl == null) return null;
     final root = doc.documentElement!;
     final gpa = _num(root, '.gpa-value, [data-field="gpa"]');
@@ -31,9 +30,9 @@ class GradeParser {
       overallGpa: gpa,
       gpaChange: change,
       totalCredits: credits,
-      classRank:
-          int.tryParse(rank?.text.replaceAll(RegExp(r'[^0-9]'), '') ?? '') ??
-              0,
+      classRank: int.tryParse(
+              rank?.text.replaceAll(RegExp(r'[^0-9]'), '') ?? '') ??
+          0,
     );
   }
 
@@ -62,8 +61,9 @@ class GradeParser {
               .querySelector('.score, .average, [data-field="average"]')
               ?.text ??
           '';
-      final score =
-          double.tryParse(scoreText.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+      final score = double.tryParse(
+              scoreText.replaceAll(RegExp(r'[^0-9.]'), '')) ??
+          0.0;
       final letter = row
               .querySelector('.letter-grade, [data-field="letter"]')
               ?.text
@@ -90,23 +90,27 @@ class GradeParser {
     final categories = <GradeCategory>[];
     final assignments = <Assignment>[];
 
-    for (final el in doc
-        .querySelectorAll('.category, [data-category-row], .weight-row')) {
-      final name =
-          el.querySelector('.category-name, .name')?.text.trim() ?? 'Other';
+    for (final el in doc.querySelectorAll(
+        '.category, [data-category-row], .weight-row')) {
+      final name = el
+              .querySelector('.category-name, .name')
+              ?.text
+              .trim() ??
+          'Other';
       final weight = _num(el, '.weight, [data-field="weight"]');
       final earned = _num(el, '.earned, [data-field="earned"]');
       final total = _num(el, '.total, [data-field="total"]');
       categories.add(GradeCategory(
-          name: name,
-          weightPercentage: weight,
-          earnedPoints: earned,
-          totalPoints: total));
+        name: name,
+        weightPercentage: weight,
+        earnedPoints: earned,
+        totalPoints: total,
+      ));
     }
 
     var i = 0;
-    for (final el in doc
-        .querySelectorAll('.assignment, tr.assignment, [data-assignment]')) {
+    for (final el in doc.querySelectorAll(
+        '.assignment, tr.assignment, [data-assignment]')) {
       final title = el
               .querySelector('.assignment-title, .title, td:first-child')
               ?.text
@@ -136,8 +140,97 @@ class GradeParser {
     return (categories: categories, assignments: assignments);
   }
 
+  /// Returns null when the schedule isn't published yet.
+  List<ScheduleEntry>? parseSchedule(String html) {
+    final doc = html_parser.parse(html);
+    final body = doc.body?.text.toLowerCase() ?? '';
+    if (body.contains('schedule not available') ||
+        body.contains('not yet published') ||
+        body.contains('no schedule')) {
+      return null;
+    }
+    final rows = doc.querySelectorAll(
+        '.schedule-row, tr.period, [data-period], .bell-schedule tr');
+    if (rows.isEmpty) return null;
+    final out = <ScheduleEntry>[];
+    for (final row in rows) {
+      final period = int.tryParse(
+              row.attributes['data-period'] ??
+                  row.querySelector('.period, td:first-child')?.text.trim() ??
+                  '') ??
+          0;
+      out.add(ScheduleEntry(
+        period: period,
+        courseTitle: row
+                .querySelector('.course, .course-title, [data-field="course"]')
+                ?.text
+                .trim() ??
+            '',
+        teacherName:
+            row.querySelector('.teacher, [data-field="teacher"]')?.text.trim() ??
+                '',
+        room: row.querySelector('.room, [data-field="room"]')?.text.trim() ?? '',
+        startTime:
+            row.querySelector('.start, [data-field="start"]')?.text.trim() ?? '',
+        endTime:
+            row.querySelector('.end, [data-field="end"]')?.text.trim() ?? '',
+        dayGroup: row.attributes['data-day'] ?? '',
+      ));
+    }
+    return out.isEmpty ? null : out;
+  }
+
+  /// Transcript grouped by term; null if the page says it's unavailable.
+  List<TranscriptTerm>? parseTranscript(String html) {
+    final doc = html_parser.parse(html);
+    final body = doc.body?.text.toLowerCase() ?? '';
+    if (body.contains('transcript not available') ||
+        body.contains('no transcript')) {
+      return null;
+    }
+    final termBlocks =
+        doc.querySelectorAll('.term, .transcript-term, [data-term]');
+    if (termBlocks.isEmpty) return null;
+    final terms = <TranscriptTerm>[];
+    for (final block in termBlocks) {
+      final label = block
+              .querySelector('.term-label, h3, [data-field="term"]')
+              ?.text
+              .trim() ??
+          'Term';
+      final courses = <TranscriptCourse>[];
+      for (final row in block.querySelectorAll('tr.course, .transcript-course')) {
+        courses.add(TranscriptCourse(
+          title: row.querySelector('.course-title, td:first-child')?.text.trim() ?? '',
+          code: row.querySelector('.code, [data-field="code"]')?.text.trim() ?? '',
+          finalGrade:
+              row.querySelector('.grade, [data-field="grade"]')?.text.trim() ?? '',
+          credits: double.tryParse(row
+                      .querySelector('.credits, [data-field="credits"]')
+                      ?.text
+                      .trim() ??
+                  '') ??
+              0,
+        ));
+      }
+      terms.add(TranscriptTerm(
+        label: label,
+        courses: courses,
+        termGpa: _num(block, '.term-gpa, [data-field="gpa"]'),
+        termCredits: _num(block, '.term-credits, [data-field="credits-total"]'),
+      ));
+    }
+    return terms;
+  }
+
+  double _num(Element root, String selector) {
+    final el = root.querySelector(selector);
+    if (el == null) return 0;
+    return double.tryParse(el.text.replaceAll(RegExp(r'[^0-9.-]'), '')) ?? 0;
+  }
+
   /// Parses the schedule page. Returns [DaySchedule.unavailable] when the
-  /// school hasn't posted a schedule for the day.
+  /// school hasn't posted a schedule for the day (common: "not available yet").
   DaySchedule parseSchedule(String html, DateTime date) {
     final doc = html_parser.parse(html);
     final body = doc.body?.text.toLowerCase() ?? '';
@@ -163,8 +256,11 @@ class GradeParser {
                   .replaceAll(RegExp(r'[^0-9]'), '') ??
               '') ??
           0;
-      final course =
-          row.querySelector('.period-course, .course-name')?.text.trim() ?? '';
+      final course = row
+              .querySelector('.period-course, .course-name')
+              ?.text
+              .trim() ??
+          '';
       final teacher =
           row.querySelector('.period-teacher, .teacher')?.text.trim() ?? '';
       final room =
@@ -185,6 +281,7 @@ class GradeParser {
   }
 
   (DateTime, DateTime) _parseTimeRange(String text, DateTime date) {
+    // Handles "8:00-8:45" / "8:00 AM - 8:45 AM"
     final clean = text.replaceAll(RegExp(r'\s+'), ' ');
     final parts = clean.split(RegExp(r'[-–—]'));
     DateTime start = date, end = date;
@@ -208,25 +305,24 @@ class GradeParser {
   }
 
   /// Parses the transcript page into [TranscriptRecord] rows.
-  /// Empty list = transcript currently unavailable.
   List<TranscriptRecord> parseTranscript(String html) {
     final doc = html_parser.parse(html);
-    final body = doc.body?.text.toLowerCase() ?? '';
-    if (body.contains('not available') || body.contains('no transcript')) {
-      return const [];
-    }
     final rows = doc.querySelectorAll(
         '.transcript-row, tr.transcript, [data-transcript], .credit-row');
     final out = <TranscriptRecord>[];
     for (final row in rows) {
-      final title =
-          row.querySelector('.course-title, td:nth-child(2)')?.text.trim() ??
-              '';
+      final title = row
+              .querySelector('.course-title, td:nth-child(2)')
+              ?.text
+              .trim() ??
+          '';
       final code =
           row.querySelector('.course-code, td:first-child')?.text.trim() ?? '';
-      final letter =
-          row.querySelector('.letter, .grade, [data-field="grade"]')?.text.trim() ??
-              '';
+      final letter = row
+              .querySelector('.letter, .grade, [data-field="grade"]')
+              ?.text
+              .trim() ??
+          '';
       final credits = _num(row, '.credits, [data-field="credits"]');
       final term =
           row.querySelector('.term, [data-field="term"]')?.text.trim() ?? '';
@@ -249,8 +345,8 @@ class GradeParser {
   /// Parses an upcoming-work / assignments-due page.
   List<WorkItem> parseWorkDue(String html) {
     final doc = html_parser.parse(html);
-    final rows =
-        doc.querySelectorAll('.due-item, .work-row, [data-due], tr.due');
+    final rows = doc.querySelectorAll(
+        '.due-item, .work-row, [data-due], tr.due');
     final out = <WorkItem>[];
     var i = 0;
     for (final row in rows) {
@@ -259,12 +355,19 @@ class GradeParser {
               ?.text
               .trim() ??
           'Item ${++i}';
-      final course =
-          row.querySelector('.due-course, .course')?.text.trim() ?? '';
-      final type =
-          row.querySelector('.due-type, .type')?.text.trim().toLowerCase() ??
-              'homework';
-      final dueText = row.querySelector('.due-date, .due')?.text.trim() ?? '';
+      final course = row
+              .querySelector('.due-course, .course')
+              ?.text
+              .trim() ??
+          '';
+      final type = row
+              .querySelector('.due-type, .type')
+              ?.text
+              .trim()
+              .toLowerCase() ??
+          'homework';
+      final dueText =
+          row.querySelector('.due-date, .due')?.text.trim() ?? '';
       final due = DateTime.tryParse(dueText) ?? DateTime.now();
       final submitted = row.querySelector('.submitted') != null;
       final grade = row.querySelector('.due-grade, .grade')?.text.trim();
@@ -279,11 +382,5 @@ class GradeParser {
       ));
     }
     return out;
-  }
-
-  double _num(Element root, String selector) {
-    final el = root.querySelector(selector);
-    if (el == null) return 0;
-    return double.tryParse(el.text.replaceAll(RegExp(r'[^0-9.-]'), '')) ?? 0;
   }
 }
