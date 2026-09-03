@@ -100,7 +100,7 @@ void main() {
     testWidgets('renders the header, GPA and course feed', (tester) async {
       await show(tester, baseline, const DashboardScreen());
 
-      expect(find.text('DOEImproved'), findsOneWidget);
+      expect(find.text('Gradly'), findsOneWidget);
       expect(find.text('LIVE'), findsOneWidget);
       expect(find.text('OVERALL GPA'), findsOneWidget);
       expect(find.text('YOUR COURSES'), findsOneWidget);

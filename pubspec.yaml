@@ -1,5 +1,5 @@
 name: doe_improved
-description: A commercial-grade student portal dashboard for NYC Public Schools (TeachHub SSO + grade analytics).
+description: Gradly — a student-built grade dashboard for NYC Public Schools (TeachHub SSO + grade analytics).
 publish_to: 'none'
 version: 1.0.0+1
 

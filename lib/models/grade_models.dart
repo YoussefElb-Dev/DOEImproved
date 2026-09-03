@@ -1,4 +1,4 @@
-/// Data models for the DOEImproved student portal.
+/// Data models for the Gradly student portal.
 library grade_models;
 
 enum AssignmentStatus { graded, pending, missing, upcoming }

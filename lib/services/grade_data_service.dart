@@ -32,7 +32,7 @@ class GradeDataService {
         'User-Agent':
             'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) '
                 'AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 '
-                'DOEImproved/1.0',
+                'Gradly/1.0',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
       };

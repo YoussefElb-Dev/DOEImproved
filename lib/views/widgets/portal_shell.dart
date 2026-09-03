@@ -39,7 +39,7 @@ class PortalHeader extends ConsumerWidget {
                   children: [
                     Flexible(
                       child: Text(
-                        'DOEImproved',
+                        'Gradly',
                         style: tt.titleMedium?.copyWith(
                           fontWeight: FontWeight.w800,
                           letterSpacing: -0.3,

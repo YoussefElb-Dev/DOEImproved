@@ -1,11 +1,11 @@
-# DOEImproved
+# Gradly
 
 A dark-glassmorphism student portal companion for **NYC Public Schools**. It signs in
 through TeachHub SSO in an in-app WebView, captures the authenticated session, and
 renders live grades, schedule, upcoming work and transcript — with **What-If** grade
 projections on top.
 
-> Student-built. **Not affiliated with the NYC DOE.** There is no DOEImproved server:
+> Student-built. **Not affiliated with the NYC DOE.** There is no Gradly server:
 > your session lives in the iOS keychain on your device, and the app talks only to
 > `teachhub.schools.nyc`.
 
@@ -138,7 +138,7 @@ flutter build ios --release --no-codesign
 `.github/workflows/build-ipa.yml` builds an **unsigned** IPA on `macos-14` for every
 push to `main`, every PR, and on demand via *Run workflow*. It analyzes, runs the test
 suite, verifies the bundle identifier is `com.doeimproved.doeImproved`, then uploads
-`DOEImproved-unsigned` as a build artifact.
+`Gradly-unsigned` as a build artifact.
 
 The IPA is unsigned: install it with a sideloading tool that re-signs
 (AltStore, Sideloadly), or re-sign it yourself.

@@ -65,22 +65,46 @@ class SettingsTab extends ConsumerWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 14),
-              Text(
-                profile?.name.isNotEmpty == true ? profile!.name : 'Student',
-                style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-              ),
-              if (profile?.schoolName.isNotEmpty == true) ...[
-                const SizedBox(height: 2),
-                Text(
-                  profile!.schoolName,
-                  textAlign: TextAlign.center,
-                  style: tt.bodySmall?.copyWith(color: AppColors.textSecondary),
+              const SizedBox(height: 16),
+              // Portal values are whatever the school typed in, so every line
+              // here is constrained: centred, wrapped to two lines, clipped.
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Column(
+                  children: [
+                    Text(
+                      profile?.name.isNotEmpty == true
+                          ? profile!.name
+                          : 'Student',
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: tt.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        height: 1.3,
+                      ),
+                    ),
+                    if (profile?.schoolName.isNotEmpty == true) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        profile!.schoolName,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: tt.bodySmall?.copyWith(
+                          color: AppColors.textSecondary,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-              ],
-              const SizedBox(height: 10),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              ),
+              const SizedBox(height: 8),
+              // Wrap, not Row: two buttons plus a large text scale overflows.
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 4,
                 children: [
                   TextButton(
                     onPressed: () =>
@@ -150,7 +174,7 @@ class SettingsTab extends ConsumerWidget {
                   style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
               Text(
-                'DOEImproved v1.0.0\n'
+                'Gradly v1.0.0\n'
                 'A student-built companion for NYC Public Schools.\n'
                 'Not affiliated with the NYC DOE.',
                 style: tt.bodySmall
@@ -159,7 +183,7 @@ class SettingsTab extends ConsumerWidget {
               const SizedBox(height: 10),
               Text(
                 'Your session stays on this device in the iOS keychain. '
-                'DOEImproved has no server and sends your data nowhere.',
+                'Gradly has no server and sends your data nowhere.',
                 style: tt.bodySmall?.copyWith(
                   color: AppColors.textSecondary,
                   height: 1.6,
@@ -226,10 +250,21 @@ class _SettingRow extends StatelessWidget {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: Icon(icon, color: iconColor ?? AppColors.gradeB),
-      title:
-          Text(title, style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
-      subtitle: Text(subtitle,
-          style: tt.bodySmall?.copyWith(color: AppColors.textSecondary)),
+      title: Text(
+        title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+      ),
+      subtitle: Text(
+        subtitle,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: tt.bodySmall?.copyWith(
+          color: AppColors.textSecondary,
+          height: 1.35,
+        ),
+      ),
       trailing: trailing,
       onTap: onTap,
     );

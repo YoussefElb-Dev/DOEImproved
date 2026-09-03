@@ -16,16 +16,16 @@ void main() {
       statusBarBrightness: Brightness.dark,
     ),
   );
-  runApp(const ProviderScope(child: DOEImprovedApp()));
+  runApp(const ProviderScope(child: GradlyApp()));
 }
 
-class DOEImprovedApp extends StatelessWidget {
-  const DOEImprovedApp({super.key});
+class GradlyApp extends StatelessWidget {
+  const GradlyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'DOEImproved',
+      title: 'Gradly',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
       home: const AuthGate(),
@@ -100,7 +100,7 @@ class _SplashScreen extends StatelessWidget {
             ),
             const SizedBox(height: 22),
             Text(
-              'DOEImproved',
+              'Gradly',
               style: tt.titleLarge?.copyWith(
                 fontWeight: FontWeight.w800,
                 letterSpacing: -0.5,

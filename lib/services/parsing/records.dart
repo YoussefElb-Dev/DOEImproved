@@ -105,6 +105,7 @@ class PortalDocument {
     void offer(String label, String value) {
       final v = normalizeText(value);
       if (v.isEmpty || v.length > 120) return;
+      if (looksLikeChrome(v)) return;
       final field = matcher.match(label);
       if (field == null) return;
       // First hit wins: pages put the summary before the fine print.
@@ -143,15 +144,42 @@ class PortalDocument {
       }
     }
 
-    // "Overall GPA: 3.92" anywhere in the text.
-    for (final m in RegExp(
-      r'([A-Za-z][A-Za-z /]{2,30}?)\s*[:∶]\s*([^\n;|]{1,60})',
-    ).allMatches(text)) {
-      offer(m.group(1)!, m.group(2)!);
+    // "Overall GPA: 3.92" written as flowing text rather than marked up.
+    //
+    // Scanned per element and anchored to that element's whole text. Running
+    // this over the document instead would let a value run on into whatever
+    // the page renders next, turning "School:" into the school name followed
+    // by the navigation menu.
+    for (final el in doc.querySelectorAll(
+      'p, span, div, li, td, th, dd, label, strong, b, h1, h2, h3, h4, h5, h6',
+    )) {
+      final line = normalizeText(el.text);
+      if (line.isEmpty || line.length > _maxLabelledLine) continue;
+      final m = _labelledValue.firstMatch(line);
+      if (m != null) offer(m.group(1)!, m.group(2)!);
     }
 
     return out;
   }
+
+  /// Longest element text still treated as a single "Label: value" line.
+  /// Anything longer is a paragraph or a run of page chrome, not a field.
+  static const int _maxLabelledLine = 80;
+
+  static final RegExp _labelledValue =
+      RegExp(r'^([A-Za-z][A-Za-z /]{2,30}?)\s*[:∶]\s*(.{1,60})$');
+
+  /// Navigation, controls and status text that share a page with real data.
+  /// A student's name is never "Log Out", and a school is never "Error".
+  static final RegExp _chrome = RegExp(
+    r'\b(log ?out|sign ?out|log ?in|sign ?in|manage account|my account|'
+    r'account settings|home|menu|navigation|settings|preferences|help|support|'
+    r'contact us|privacy|terms|copyright|search|skip to|back to|view all|'
+    r'see all|show more|loading|error|unavailable|session|timeout)\b',
+    caseSensitive: false,
+  );
+
+  static bool looksLikeChrome(String value) => _chrome.hasMatch(value);
 
   /// Text of every heading on the page, outermost first.
   List<String> headings() {

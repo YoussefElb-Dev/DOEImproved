@@ -1,4 +1,4 @@
-/// Schedule and work models for the DOEImproved portal.
+/// Schedule and work models for the Gradly portal.
 library schedule_models;
 
 /// One period entry in the daily schedule.

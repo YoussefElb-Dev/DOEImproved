@@ -96,16 +96,16 @@ jobs:
           cd build/ios/Release-iphoneos
           mkdir -p Payload
           cp -R Runner.app Payload/
-          zip -qry DOEImproved.ipa Payload
-          size=$(du -h DOEImproved.ipa | cut -f1)
+          zip -qry Gradly.ipa Payload
+          size=$(du -h Gradly.ipa | cut -f1)
           echo "size=${size}" >> "$GITHUB_OUTPUT"
           echo "IPA size: ${size}"
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: DOEImproved-unsigned
-          path: build/ios/Release-iphoneos/DOEImproved.ipa
+          name: Gradly-unsigned
+          path: build/ios/Release-iphoneos/Gradly.ipa
           compression-level: 9
           retention-days: 30
 
@@ -113,7 +113,7 @@ jobs:
         if: always()
         run: |
           {
-            echo "### DOEImproved — unsigned iOS build"
+            echo "### Gradly — unsigned iOS build"
             echo ""
             echo "| | |"
             echo "|---|---|"

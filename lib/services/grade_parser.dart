@@ -28,8 +28,12 @@ class GradeParser {
     final doc = PortalDocument.parse(body);
     final values = doc.extractLabeledValues(FieldMatcher.profileField);
 
-    final name = values[SemanticField.studentName] ?? _headingName(doc);
-    final school = values[SemanticField.schoolName] ?? '';
+    final name = _plausible(values[SemanticField.studentName],
+            maxLength: 60, maxWords: 6, maxDigits: 0) ??
+        _headingName(doc);
+    final school =
+        _plausible(values[SemanticField.schoolName], maxLength: 80, maxWords: 12) ??
+            '';
     final gpa = _gpaValue(values[SemanticField.gpa]);
     final change = parseNumber(values[SemanticField.gpaChange] ?? '') ?? 0;
     final credits = parseNumber(values[SemanticField.totalCredits] ?? '') ?? 0;
@@ -61,6 +65,26 @@ class GradeParser {
     final n = parseNumber(raw ?? '');
     if (n == null || n < 0) return 0;
     return n > 10 ? 0 : n;
+  }
+
+  /// Rejects a value that is too long, too wordy, too numeric or too obviously
+  /// page furniture to be the thing it claims to be.
+  ///
+  /// Names and school names are the fields most exposed to a portal's layout:
+  /// they sit near the navigation, and a stray match turns the profile card
+  /// into a run of menu labels. Better to show nothing than nonsense.
+  String? _plausible(
+    String? raw, {
+    required int maxLength,
+    required int maxWords,
+    int maxDigits = 4,
+  }) {
+    final v = raw?.trim() ?? '';
+    if (v.isEmpty || v.length > maxLength) return null;
+    if (v.split(' ').where((w) => w.isNotEmpty).length > maxWords) return null;
+    if (RegExp(r'\d').allMatches(v).length > maxDigits) return null;
+    if (PortalDocument.looksLikeChrome(v)) return null;
+    return v;
   }
 
   String? _headingName(PortalDocument doc) {

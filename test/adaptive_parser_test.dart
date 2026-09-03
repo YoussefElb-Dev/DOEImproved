@@ -147,6 +147,42 @@ void main() {
       expect(parser.parseProfile('<html><body><p>Hello</p></body></html>'),
           isNull);
     });
+
+    test('a labelled value stops at the end of its own element', () {
+      const html = '''
+<html><body>
+  <p>School: Bronx High School of Science</p>
+  <nav><a href="#">Manage Account</a> <a href="#">Log Out</a></nav>
+</body></html>''';
+      final p = parser.parseProfile(html)!;
+      expect(p.schoolName, 'Bronx High School of Science',
+          reason: 'the value must not run on into the navigation');
+    });
+
+    test('page furniture after a label is rejected, not displayed', () {
+      // What a collapsed-whitespace scan of a real portal page produces.
+      const html = '''
+<html><body>
+  <p>School: PS 123 Grade 10 Manage Account Log Out Error 4</p>
+  <dl><dt>Student</dt><dd>Amara Okonkwo</dd></dl>
+</body></html>''';
+      final p = parser.parseProfile(html)!;
+      expect(p.name, 'Amara Okonkwo');
+      expect(p.schoolName, isEmpty, reason: 'better blank than a menu');
+    });
+
+    test('a name that swallowed the menu is dropped', () {
+      const html = '<html><body><dl><dt>Student</dt>'
+          '<dd>Amara Okonkwo Home Menu Settings Help Log Out</dd>'
+          '</dl></body></html>';
+      expect(parser.parseProfile(html)?.name ?? '', isNot(contains('Log Out')));
+    });
+
+    test('an implausibly long name is dropped', () {
+      final html = '<html><body><dl><dt>Student</dt><dd>'
+          '${'Wordy ' * 20}</dd></dl></body></html>';
+      expect(parser.parseProfile(html)?.name ?? '', isNot(contains('Wordy')));
+    });
   });
 
   group('transcript', () {
