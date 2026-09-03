@@ -327,6 +327,14 @@ class PortalDocument {
       if (seen == 0) continue;
       avgLength[c] = totalLength / seen;
       modal[c] = counts.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
+
+      // Names beat the mode: a course-title column never contains an
+      // honorific, so even a minority of them identifies a teacher column
+      // whose other rows are bare surnames.
+      final names = counts[ValueShape.personName] ?? 0;
+      if (names > 0 && names * 5 >= seen * 2) {
+        modal[c] = ValueShape.personName;
+      }
     }
 
     const priority = [
@@ -497,20 +505,17 @@ class PortalDocument {
       }
     }
 
-    // Cards usually give the name a heading rather than a label, so when
-    // nothing identified what this record is about, take the heading — or,
-    // failing that, the first line of prose in the card.
+    // Cards usually give the name a heading rather than a label, so a heading
+    // may supply the field that says what this record is about.
+    //
+    // Deliberately a heading and nothing else: guessing at "the first text in
+    // the block" invents a name for any block at all, which is enough to make
+    // a weighting table look like a list of assignments.
     final primary = matcher.primary;
     if (primary != null && !fields.containsKey(primary)) {
       final heading =
           block.querySelector('h1, h2, h3, h4, h5, h6, [role=heading]');
-      var candidate = heading == null ? '' : normalizeText(heading.text);
-      if (candidate.isEmpty) {
-        candidate = values.firstWhere(
-          (v) => classifyValue(v) == ValueShape.text,
-          orElse: () => '',
-        );
-      }
+      final candidate = heading == null ? '' : normalizeText(heading.text);
       if (candidate.isNotEmpty) fields[primary] = candidate;
     }
 

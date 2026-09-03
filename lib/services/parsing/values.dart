@@ -259,7 +259,8 @@ bool looksLikePersonName(String raw) {
   if (v.isEmpty || v.length > 60) return false;
 
   if (RegExp(
-    r'^(mr|mrs|ms|miss|mx|dr|prof|professor|sr|sra|srta|mme|mlle|m)\b\.?\s+\S',
+    r'^(mr|mrs|ms|miss|mx|dr|dra|prof|profa|professor|sr|sra|srta|snr|snra'
+    r'|mme|mlle|coach|rev|fr|m)\b\.?\s+\S',
     caseSensitive: false,
   ).hasMatch(v)) {
     return true;
