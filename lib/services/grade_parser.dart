@@ -16,9 +16,10 @@ class GradeParser {
     final doc = html_parser.parse(html);
     final nameEl = doc.querySelector('.student-name, #studentName, [data-field="student-name"]');
     if (nameEl == null) return null;
-    final gpa = _num(doc, '.gpa-value, [data-field="gpa"]');
-    final change = _num(doc, '.gpa-change, [data-field="gpa-change"]');
-    final credits = _num(doc, '.credits, [data-field="credits"]');
+    final root = doc.documentElement!;
+    final gpa = _num(root, '.gpa-value, [data-field="gpa"]');
+    final change = _num(root, '.gpa-change, [data-field="gpa-change"]');
+    final credits = _num(root, '.credits, [data-field="credits"]');
     final rank = doc.querySelector('.class-rank, [data-field="rank"]');
     final school = doc.querySelector('.school-name, [data-field="school"]');
     return StudentProfile(
