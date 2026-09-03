@@ -18,6 +18,9 @@ projections on top.
   invisible to `document.cookie`. A platform channel (`doe_improved/cookies`) reads the
   real WebView cookie jar on both platforms: `WKHTTPCookieStore` on iOS,
   `CookieManager` on Android. Without this, live data cannot work at all.
+- **Adaptive parsing** — works for any school, any course names and any markup. The
+  parser finds data by *structure* and identifies it *semantically*; nothing depends on
+  a particular CSS class existing (see below)
 - **One sync, five sections** — dashboard, course details, schedule, transcript and
   upcoming work are pulled together into a single `PortalSnapshot`, so every tab agrees
   on the same data and the same timestamp
@@ -35,6 +38,35 @@ projections on top.
   periods with the current one highlighted
 - **Work & transcript** — assignments bucketed into Overdue / Due today / This week /
   Later, and a transcript grouped by term with a per-term GPA
+- **Real grade scales** — NYC numeric marks where 65 passes, letter grades with +/-,
+  and the non-numeric codes transcripts carry (P, NS, INC, W, CR, NC, AUD, EX)
+
+## How the parser adapts
+
+Schools run different portal software, name their columns differently, and change
+markup without notice. Rather than matching CSS selectors, the parser works in two
+layers.
+
+**Finding records** — HTML tables (including headerless and single-row ones), repeated
+sibling blocks grouped by tag and class signature (so card and list layouts parse), and
+JSON arrays of objects (so a portal serving an API works unchanged).
+
+**Identifying fields** — table headers, `<dt>` terms, JSON keys, `data-` attributes,
+`aria-label`s, `"Label: value"` text, and descriptive class names *as a hint, never a
+requirement*. Matches rank exact > matching the end of the label > longest keyword,
+because English compounds put the head noun last: `"period room"` is a room and
+`"period teacher"` is a teacher. When nothing is labelled at all, columns are inferred
+from the shape of their values — letter grades, percentages, credits, dates, time
+ranges, person names — with distinctive shapes claiming their column first.
+
+A candidate structure must resolve at least two fields per row and carry the ones the
+caller requires, which is what stops a navigation menu being read as a roster.
+
+Gaps are filled conservatively: a letter derives from a percentage and vice versa, and
+categories are synthesised from assignments (weighted by points possible, reproducing a
+total-points gradebook) when no weights are published, so What-If still works. A
+school's own GPA or quality points always win over anything derived — derivation is
+unweighted, because inventing an AP bonus would misstate a real student's GPA.
 
 ## Stack
 
@@ -61,7 +93,12 @@ lib/
 │   ├── auth_webview_service.dart      # SSO flow, cookie capture, session validation
 │   ├── native_cookie_bridge.dart      # doe_improved/cookies platform channel
 │   ├── grade_data_service.dart        # HTTP + timeouts + auth-expiry detection
-│   ├── grade_parser.dart              # HTML → typed models
+│   ├── grade_parser.dart              # portal pages → typed models
+│   ├── grade_scale.dart               # NYC boundaries, letters, non-numeric marks
+│   ├── parsing/
+│   │   ├── values.dart                # normalisation + shape-aware value parsing
+│   │   ├── field_map.dart             # SemanticField + label matching
+│   │   └── records.dart               # table / card / JSON record extraction
 │   ├── portal_repository.dart         # one sync, concurrent sections, partial failure
 │   └── calculator_service.dart        # weighted averages + What-If projections
 ├── storage/
