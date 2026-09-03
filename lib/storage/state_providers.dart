@@ -36,7 +36,7 @@ final studentProfileProvider = FutureProvider<StudentProfile>((ref) async {
       final live = await ref.read(gradeDataServiceProvider).sync(cookies);
       if (live.profile != null) return live.profile;
     } on AuthExpiredException {
-      ref.read(sessionCookiesProvider.notifier).state = const AsyncData({});
+      // Session invalid — fall through to mock data.
     }
   }
   await Future.delayed(const Duration(milliseconds: 150));
