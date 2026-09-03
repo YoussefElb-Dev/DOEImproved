@@ -1,0 +1,18 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+  errors:
+    prefer_single_quotes: warn
+    avoid_print: warn
+
+linter:
+  rules:
+    - prefer_single_quotes
+    - require_trailing_commas
+    - use_key_in_widget_constructors
+    - avoid_unnecessary_containers
+    - sized_box_for_whitespace
+    - sort_child_properties_last
