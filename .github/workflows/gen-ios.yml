@@ -37,7 +37,8 @@ jobs:
           if [ -n "$(git status --porcelain ios/)" ]; then
             git add -f ios/
             git commit -m "chore: generate iOS platform directory via flutter create"
-            git push
+            git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/YoussefElb-Dev/DOEImproved.git"
+            git push origin main
           else
             echo "Nothing to commit"
           fi
