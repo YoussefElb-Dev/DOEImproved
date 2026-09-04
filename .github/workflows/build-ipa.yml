@@ -73,7 +73,10 @@ jobs:
           grep -q 'nycenet.edu' ios/Runner/Info.plist
 
           # ...but never at the cost of turning ATS off everywhere.
-          if grep -q 'NSAllowsArbitraryLoads' ios/Runner/Info.plist; then
+          # Match the key element, not the word: the plist explains in a
+          # comment why this is deliberately absent, and prose must not trip
+          # the guard that exists to catch a real setting.
+          if grep -q '<key>NSAllowsArbitraryLoads</key>' ios/Runner/Info.plist; then
             echo "Refusing to ship with ATS disabled globally." >&2
             exit 1
           fi

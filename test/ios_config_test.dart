@@ -45,9 +45,11 @@ void main() {
     });
 
     test('never disables App Transport Security globally', () {
+      // The key element, not the word — the plist names it in a comment
+      // explaining why it is absent, and that must not read as a failure.
       expect(
         contents,
-        isNot(contains('NSAllowsArbitraryLoads')),
+        isNot(contains('<key>NSAllowsArbitraryLoads</key>')),
         reason: 'one awkward host must not cost every other host its security',
       );
     });
