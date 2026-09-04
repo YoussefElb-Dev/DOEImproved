@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:html/parser.dart' as html_parser;
 import 'package:http/http.dart' as http;
 
@@ -94,6 +96,10 @@ class DocumentService {
         failure: 'The DOE document site needs its own sign-in.',
         needsSignIn: true,
       );
+    } on HandshakeException catch (e) {
+      return DocumentSyncResult(failure: _tlsFailure(e));
+    } on TlsException catch (e) {
+      return DocumentSyncResult(failure: _tlsFailure(e));
     } catch (e) {
       return DocumentSyncResult(failure: 'Could not open the documents page: $e');
     }
@@ -158,6 +164,14 @@ class DocumentService {
       transcript: _deduplicate(transcript),
     );
   }
+
+  /// The DOE document site negotiates TLS 1.2 with no forward secrecy, which
+  /// iOS refuses by default. The app ships an App Transport Security
+  /// exception for it; if this still fires, that exception did not make it
+  /// into the build.
+  static String _tlsFailure(Object error) =>
+      'The secure connection to the DOE document site failed. '
+      'Its server uses an older TLS configuration ($error).';
 
   Future<http.Response> _get(Uri uri, Map<String, String> cookies) async {
     if (!PortalHosts.isAllowed(uri.host) || uri.scheme != 'https') {

@@ -50,6 +50,42 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
 
+	<!--
+	  App Transport Security.
+
+	  www.nycenet.edu, which serves the student's transcript and report
+	  cards, offers no forward-secrecy ciphers at all: every ECDHE and DHE
+	  suite is refused and only plain-RSA key exchange is accepted
+	  (AES128-GCM-SHA256, AES256-GCM-SHA384, AES128-SHA). ATS requires ECDHE,
+	  so WKWebView rejects the connection outright — "a TLS error caused the
+	  secure connection to fail".
+
+	  The exception is deliberately as small as it can be:
+	    * scoped to nycenet.edu alone, so teachhub.schools.nyc and everything
+	      else keep full ATS. TeachHub is TLS 1.3 and needs no help.
+	    * only the forward-secrecy rule is relaxed. TLS 1.2 stays the floor,
+	      because the server does support it, and certificate validation is
+	      untouched — its Entrust OV certificate is valid.
+
+	  NSAllowsArbitraryLoads is deliberately NOT set: that would disable ATS
+	  for every host the app talks to.
+	-->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>nycenet.edu</key>
+			<dict>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+				<key>NSExceptionRequiresForwardSecrecy</key>
+				<false/>
+				<key>NSExceptionMinimumTLSVersion</key>
+				<string>TLSv1.2</string>
+			</dict>
+		</dict>
+	</dict>
+
 	<!-- file_picker (FileType.image) presents the system photo library. -->
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose a photo from your library to use as your Gradly profile picture. It stays on this device.</string>

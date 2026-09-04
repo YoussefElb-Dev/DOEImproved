@@ -66,6 +66,17 @@ jobs:
           # shipping an app that can never sign in.
           grep -q 'doe_improved/cookies' ios/Runner/AppDelegate.swift
           grep -q 'NSPhotoLibraryUsageDescription' ios/Runner/Info.plist
+
+          # Without this exception the document site cannot be reached at all:
+          # it offers no forward-secrecy ciphers and ATS refuses the handshake.
+          grep -q 'NSExceptionDomains' ios/Runner/Info.plist
+          grep -q 'nycenet.edu' ios/Runner/Info.plist
+
+          # ...but never at the cost of turning ATS off everywhere.
+          if grep -q 'NSAllowsArbitraryLoads' ios/Runner/Info.plist; then
+            echo "Refusing to ship with ATS disabled globally." >&2
+            exit 1
+          fi
           echo "Native iOS overlay applied."
 
       - name: Verify bundle identifier

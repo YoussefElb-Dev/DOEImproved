@@ -46,12 +46,29 @@ class _DocumentAuthScreenState extends State<DocumentAuthScreen> {
             if (!mounted) return;
             setState(() {
               _busy = false;
-              if (error.isForMainFrame ?? false) _error = error.description;
+              if (error.isForMainFrame ?? false) {
+                _error = _readableError(error.description);
+              }
             });
           },
         ),
       )
       ..loadRequest(Uri.parse(DocumentService.documentsUrl));
+  }
+
+  /// iOS reports an ATS rejection as a bare "TLS error", which tells a
+  /// student nothing. Name the actual cause.
+  static String _readableError(String description) {
+    final lower = description.toLowerCase();
+    if (lower.contains('tls') ||
+        lower.contains('ssl') ||
+        lower.contains('secure connection')) {
+      return 'The secure connection failed. The DOE document site uses an '
+          'older TLS setup than iOS accepts by default. If this keeps '
+          'happening, the app build is missing its security exception for '
+          'nycenet.edu.';
+    }
+    return description;
   }
 
   @override
