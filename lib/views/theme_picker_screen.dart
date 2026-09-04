@@ -193,10 +193,13 @@ class _Preview extends StatelessWidget {
     );
   }
 
+  /// Four bars at 6pt with a 2pt gutter is 32pt — the preview card leaves 34
+  /// once its two borders and padding are taken out, so this fits with room
+  /// to spare. Widening either value overflows the card.
   Widget _bar(Color color, double height) => Container(
         width: 6,
         height: height,
-        margin: const EdgeInsets.only(right: 3),
+        margin: const EdgeInsets.only(right: 2),
         decoration: BoxDecoration(
           color: color,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(2)),
