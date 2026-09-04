@@ -27,8 +27,8 @@ class GradeDataService {
       : _parser = parser ?? const GradeParser(),
         _client = client ?? http.Client();
 
-  Map<String, String> _headers(Map<String, String> cookies) => {
-        'Cookie': NativeCookieBridge.toHeader(cookies),
+  Map<String, String> _headers(Map<String, String> cookies, String host) => {
+        'Cookie': NativeCookieBridge.toHeader(cookies, host: host),
         'User-Agent':
             'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) '
                 'AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 '
@@ -48,7 +48,7 @@ class GradeDataService {
     if (uri == null) return null;
     final resolved = Uri.parse(baseUrl).resolveUri(uri);
     if (resolved.scheme != 'https') return null;
-    if (!resolved.host.toLowerCase().endsWith('schools.nyc')) return null;
+    if (!PortalHosts.isAllowed(resolved.host)) return null;
     return resolved;
   }
 
@@ -62,7 +62,7 @@ class GradeDataService {
 
   Future<http.Response> _getUri(Uri uri, Map<String, String> cookies) async {
     final res = await _client
-        .get(uri, headers: _headers(cookies))
+        .get(uri, headers: _headers(cookies, uri.host))
         .timeout(
           timeout,
           onTimeout: () => throw PortalUnreachableException(
@@ -201,7 +201,7 @@ class GradeDataService {
 
   static bool _looksLikeLoginUrl(Uri uri) {
     final host = uri.host.toLowerCase();
-    if (!host.endsWith('schools.nyc')) return true; // bounced to an IdP
+    if (!PortalHosts.isAllowed(host)) return true; // bounced to an IdP
     final path = uri.path.toLowerCase();
     const markers = ['login', 'signin', 'sign-in', 'saml', 'adfs', 'sso', 'auth'];
     return markers.any(path.contains);

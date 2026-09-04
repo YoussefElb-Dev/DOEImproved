@@ -8,6 +8,7 @@ import 'package:doe_improved/views/assignments_tab.dart';
 import 'package:doe_improved/views/calendar_tab.dart';
 import 'package:doe_improved/views/grades_tab.dart';
 import 'package:doe_improved/views/root_shell.dart';
+import 'package:doe_improved/views/schedule_tab.dart';
 import 'package:doe_improved/views/settings_tab.dart';
 import 'package:doe_improved/views/theme_picker_screen.dart';
 import 'package:flutter/material.dart';
@@ -349,6 +350,61 @@ void main() {
     });
   });
 
+  group('Schedule tab', () {
+    testWidgets('lists the day in period order with the current one marked',
+        (tester) async {
+      final now = DateTime.now();
+      ScheduleEntry at(int period, String title, int startsInMinutes,
+              int endsInMinutes) =>
+          ScheduleEntry(
+            period: period,
+            courseTitle: title,
+            teacherName: 'Ms. Okafor',
+            room: '4W12',
+            startTime: now.add(Duration(minutes: startsInMinutes)),
+            endTime: now.add(Duration(minutes: endsInMinutes)),
+          );
+
+      final data = baseline.copyWith(
+        schedule: DaySchedule(
+          date: now,
+          label: 'A Day',
+          // Deliberately out of order: the tab sorts by period.
+          periods: [
+            at(3, 'Global History', 40, 85),
+            at(1, 'AP Calculus BC', -120, -75),
+            at(2, 'AP Physics C', -10, 35),
+          ],
+        ),
+      );
+
+      await show(tester, data, const ScheduleTab());
+
+      expect(find.text('A Day'), findsOneWidget);
+      expect(find.text('3 classes today'), findsOneWidget);
+      // Period 2 is running right now.
+      expect(find.text('IN CLASS'), findsOneWidget);
+      expect(find.textContaining('min left'), findsOneWidget);
+      expect(find.text('AP Physics C'), findsWidgets);
+
+      // Rendered in period order, whatever order the portal listed them in.
+      final periodLabels = tester
+          .widgetList<Text>(find.byType(Text))
+          .map((t) => t.data)
+          .where((d) => d == '1' || d == '2' || d == '3')
+          .toList();
+      expect(periodLabels, ['1', '2', '3']);
+
+      await teardown(tester);
+    });
+
+    testWidgets('says so when the school has posted nothing', (tester) async {
+      await show(tester, baseline, const ScheduleTab());
+      expect(find.text('Schedule unavailable'), findsOneWidget);
+      await teardown(tester);
+    });
+  });
+
   group('Root shell', () {
     testWidgets('exposes all five tabs and switches between them',
         (tester) async {
@@ -356,9 +412,10 @@ void main() {
 
       for (final label in [
         'Grades',
+        'Schedule',
         'Calendar',
-        'Assignments',
-        'Analytics',
+        'Work',
+        'Stats',
         'Settings',
       ]) {
         expect(find.text(label), findsWidgets, reason: '$label tab missing');

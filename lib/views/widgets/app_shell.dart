@@ -131,6 +131,20 @@ class DemoBanner extends StatelessWidget {
   }
 }
 
+/// Shown when the last refresh failed but saved data is still on screen.
+class OfflineBanner extends StatelessWidget {
+  const OfflineBanner({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return _Banner(
+      icon: Icons.history_rounded,
+      color: context.palette.warning,
+      message: 'Showing your saved copy — the portal could not be reached.',
+    );
+  }
+}
+
 /// Shown when the sync worked but one section came back empty.
 class WarningBanner extends StatelessWidget {
   final String message;
@@ -244,6 +258,9 @@ class ScreenScaffold extends ConsumerWidget {
     final snapshot = ref.watch(portalProvider);
     final partial = snapshot.valueOrNull?.partialFailure;
     final isDemo = snapshot.valueOrNull?.isDemo ?? false;
+    // A failed refresh keeps the previous data, so this is the honest state:
+    // there is something to read, it just is not fresh.
+    final stale = snapshot.hasError && snapshot.hasValue;
 
     return SafeArea(
       bottom: false,
@@ -295,6 +312,10 @@ class ScreenScaffold extends ConsumerWidget {
             const SizedBox(height: 18),
             if (isDemo) ...[
               const DemoBanner(),
+              const SizedBox(height: 14),
+            ],
+            if (stale) ...[
+              const OfflineBanner(),
               const SizedBox(height: 14),
             ],
             if (partial != null) ...[

@@ -4,14 +4,17 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/theme/app_palette.dart';
+import '../models/archive_models.dart';
 import '../models/grade_models.dart';
 import '../models/portal_snapshot.dart';
 import '../models/schedule_models.dart';
 import '../services/analytics_service.dart';
 import '../services/auth_webview_service.dart';
+import '../services/document_service.dart';
 import '../services/calculator_service.dart';
 import '../services/grade_data_service.dart';
 import '../services/portal_repository.dart';
+import 'archive_store.dart';
 import 'settings_store.dart';
 
 // ─────────────────────────── services ───────────────────────────
@@ -29,6 +32,15 @@ final portalRepositoryProvider = Provider<PortalRepository>((ref) {
 final calculatorProvider = Provider<CalculatorService>(
   (ref) => const CalculatorService(),
 );
+
+/// On-device storage: the offline cache, the dated archive, and the PDFs.
+final archiveStoreProvider = Provider<ArchiveStore>((ref) => ArchiveStore());
+
+final documentServiceProvider = Provider<DocumentService>((ref) {
+  final service = DocumentService();
+  ref.onDispose(service.dispose);
+  return service;
+});
 
 // ─────────────────────────── session ───────────────────────────
 
@@ -53,8 +65,15 @@ class SessionController extends AsyncNotifier<Map<String, String>> {
     state = const AsyncData({});
   }
 
+  /// Clears the session and the offline cache.
+  ///
+  /// The dated archive and the saved PDFs are deliberately left alone: they
+  /// are the record the DOE no longer keeps, and losing them to a routine
+  /// sign-out would defeat the point of saving them. The archive screen has
+  /// its own explicit delete.
   Future<void> signOut() async {
     await ref.read(authServiceProvider).clearSession();
+    await ref.read(archiveStoreProvider).clearSnapshot();
     state = const AsyncData({});
   }
 }
@@ -79,22 +98,61 @@ class PortalController extends AsyncNotifier<PortalSnapshot> {
     final cookies = await ref.watch(sessionProvider.future);
 
     _timer?.cancel();
-    if (cookies.isNotEmpty) {
-      _timer = Timer.periodic(kAutoRefreshInterval, (_) => refresh());
-    }
     ref.onDispose(() => _timer?.cancel());
 
-    return ref.read(portalRepositoryProvider).load(cookies);
+    if (cookies.isEmpty) return PortalRepository.demoSnapshot();
+
+    _timer = Timer.periodic(kAutoRefreshInterval, (_) => refresh());
+
+    // Show the last good sync straight away, then catch up behind it, so the
+    // app opens instantly and still works with no signal.
+    final cached = await ref.read(archiveStoreProvider).readSnapshot();
+    if (cached != null) {
+      Future<void>.microtask(refresh);
+      return cached;
+    }
+    return _loadAndPersist(cookies);
   }
 
   /// Re-pulls the portal while leaving the current data on screen, so a
-  /// refresh never flashes the UI back to skeletons.
+  /// refresh never flashes the UI back to skeletons — and a failed refresh
+  /// keeps showing what was already there rather than blanking the app.
   Future<void> refresh() async {
+    final previous = state;
     final cookies = ref.read(sessionProvider).valueOrNull ?? const {};
-    state = AsyncValue<PortalSnapshot>.loading().copyWithPrevious(state);
-    state = await AsyncValue.guard(
-      () => ref.read(portalRepositoryProvider).load(cookies),
+    state =
+        const AsyncValue<PortalSnapshot>.loading().copyWithPrevious(previous);
+    final next = await AsyncValue.guard(() => _loadAndPersist(cookies));
+    state = next.copyWithPrevious(previous);
+  }
+
+  /// Loads, fills gaps from the archive, then writes both the cache and the
+  /// report for the day.
+  Future<PortalSnapshot> _loadAndPersist(Map<String, String> cookies) async {
+    final store = ref.read(archiveStoreProvider);
+    var snapshot = await ref.read(portalRepositoryProvider).load(cookies);
+    if (!snapshot.isLive) return snapshot;
+
+    // The portal takes the transcript down between terms. This app does not.
+    if (snapshot.transcript.isEmpty) {
+      final remembered = await store.latestTranscript();
+      if (remembered.isNotEmpty) {
+        snapshot = snapshot.copyWith(transcript: remembered);
+      }
+    }
+
+    await store.saveSnapshot(snapshot);
+    final wrote = await store.recordReport(
+      ArchivedReport.fromSnapshot(snapshot, term: _termOf(snapshot)),
     );
+    if (wrote) ref.invalidate(archiveReportsProvider);
+    return snapshot;
+  }
+
+  String _termOf(PortalSnapshot snapshot) {
+    final series =
+        ref.read(analyticsProvider).termGpaSeries(snapshot.transcript);
+    return series.isEmpty ? '' : series.last.term;
   }
 
   /// True while a refresh is in flight over already-rendered data.
@@ -243,6 +301,72 @@ final workByDayProvider = Provider<Map<DateTime, List<WorkItem>>>((ref) {
   }
   return out;
 });
+
+// ─────────────────────────── saved history ───────────────────────────
+
+/// Every dated report on the device, newest first.
+final archiveReportsProvider =
+    FutureProvider<List<ArchivedReportMeta>>((ref) async {
+  return ref.read(archiveStoreProvider).listReports();
+});
+
+final archivedReportProvider =
+    FutureProvider.family<ArchivedReport?, String>((ref, id) async {
+  return ref.read(archiveStoreProvider).readReport(id);
+});
+
+/// PDFs downloaded from the DOE and kept on the device.
+final savedDocumentsProvider =
+    FutureProvider<List<SavedDocument>>((ref) async {
+  ref.watch(documentSyncProvider);
+  return ref.read(archiveStoreProvider).listDocuments();
+});
+
+final storageUsageProvider = FutureProvider<int>((ref) async {
+  ref.watch(archiveReportsProvider);
+  ref.watch(documentSyncProvider);
+  return ref.read(archiveStoreProvider).totalBytes();
+});
+
+/// Downloads the documents the DOE publishes and stores them on the device.
+final documentSyncProvider = StateNotifierProvider<DocumentSyncNotifier,
+    AsyncValue<DocumentSyncResult?>>(DocumentSyncNotifier.new);
+
+class DocumentSyncNotifier
+    extends StateNotifier<AsyncValue<DocumentSyncResult?>> {
+  DocumentSyncNotifier(this._ref) : super(const AsyncData(null));
+
+  final Ref _ref;
+
+  Future<void> run() async {
+    if (state.isLoading) return;
+    state = const AsyncLoading();
+
+    final cookies = _ref.read(sessionProvider).valueOrNull ?? const {};
+    final store = _ref.read(archiveStoreProvider);
+
+    state = await AsyncValue.guard(() async {
+      final result =
+          await _ref.read(documentServiceProvider).sync(cookies, store);
+
+      // A transcript read out of a PDF is worth keeping even when the portal
+      // publishes none — that is the reason for reading it at all.
+      if (result.transcript.isNotEmpty) {
+        final snapshot = _ref.read(portalProvider).valueOrNull;
+        if (snapshot != null) {
+          await store.recordReport(
+            ArchivedReport.fromSnapshot(
+              snapshot.copyWith(transcript: result.transcript),
+            ),
+          );
+        }
+      }
+      return result;
+    });
+
+    _ref.invalidate(archiveReportsProvider);
+  }
+}
 
 // ─────────────────────────── lifecycle ───────────────────────────
 

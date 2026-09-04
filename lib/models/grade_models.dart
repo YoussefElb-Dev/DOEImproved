@@ -31,6 +31,16 @@ class StudentProfile {
         totalCredits: (json['totalCredits'] as num?)?.toDouble() ?? 0.0,
         classRank: (json['classRank'] as num?)?.toInt() ?? 0,
       );
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'schoolName': schoolName,
+        'avatarUrl': avatarUrl,
+        'overallGpa': overallGpa,
+        'gpaChange': gpaChange,
+        'totalCredits': totalCredits,
+        'classRank': classRank,
+      };
 }
 
 class GradeCategory {
@@ -48,6 +58,20 @@ class GradeCategory {
 
   double get categoryScore =>
       totalPoints <= 0 ? 0 : (earnedPoints / totalPoints) * 100;
+
+  factory GradeCategory.fromJson(Map<String, dynamic> json) => GradeCategory(
+        name: json['name'] as String? ?? 'Other',
+        weightPercentage: (json['weightPercentage'] as num?)?.toDouble() ?? 0,
+        earnedPoints: (json['earnedPoints'] as num?)?.toDouble() ?? 0,
+        totalPoints: (json['totalPoints'] as num?)?.toDouble() ?? 0,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'weightPercentage': weightPercentage,
+        'earnedPoints': earnedPoints,
+        'totalPoints': totalPoints,
+      };
 
   GradeCategory copyWith({double? earnedPoints, double? totalPoints}) =>
       GradeCategory(
@@ -92,6 +116,16 @@ class Assignment {
           orElse: () => AssignmentStatus.graded,
         ),
       );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'category': category,
+        'score': score,
+        'maxScore': maxScore,
+        'dueDate': dueDate.toIso8601String(),
+        'status': status.name,
+      };
 }
 
 class Course {
@@ -120,6 +154,36 @@ class Course {
     required this.assignments,
     this.detailPath,
   });
+
+  factory Course.fromJson(Map<String, dynamic> json) => Course(
+        id: json['id'] as String? ?? '',
+        title: json['title'] as String? ?? 'Course',
+        code: json['code'] as String? ?? '',
+        teacherName: json['teacherName'] as String? ?? '',
+        currentScore: (json['currentScore'] as num?)?.toDouble() ?? 0,
+        letterGrade: json['letterGrade'] as String? ?? '',
+        categories: [
+          for (final c in (json['categories'] as List? ?? const []))
+            GradeCategory.fromJson(Map<String, dynamic>.from(c as Map)),
+        ],
+        assignments: [
+          for (final a in (json['assignments'] as List? ?? const []))
+            Assignment.fromJson(Map<String, dynamic>.from(a as Map)),
+        ],
+        detailPath: json['detailPath'] as String?,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'code': code,
+        'teacherName': teacherName,
+        'currentScore': currentScore,
+        'letterGrade': letterGrade,
+        'categories': [for (final c in categories) c.toJson()],
+        'assignments': [for (final a in assignments) a.toJson()],
+        if (detailPath != null) 'detailPath': detailPath,
+      };
 
   /// Grade boundaries on the standard NYC scale.
   static const List<MapEntry<double, String>> _boundaries = [

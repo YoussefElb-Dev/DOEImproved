@@ -68,6 +68,48 @@ class PortalSnapshot {
     return open;
   }
 
+  factory PortalSnapshot.fromJson(Map<String, dynamic> json) => PortalSnapshot(
+        profile: StudentProfile.fromJson(
+          Map<String, dynamic>.from(json['profile'] as Map? ?? const {}),
+        ),
+        courses: [
+          for (final c in (json['courses'] as List? ?? const []))
+            Course.fromJson(Map<String, dynamic>.from(c as Map)),
+        ],
+        schedule: json['schedule'] == null
+            ? DaySchedule.unavailable(DateTime.now())
+            : DaySchedule.fromJson(
+                Map<String, dynamic>.from(json['schedule'] as Map),
+              ),
+        transcript: [
+          for (final t in (json['transcript'] as List? ?? const []))
+            TranscriptRecord.fromJson(Map<String, dynamic>.from(t as Map)),
+        ],
+        work: [
+          for (final w in (json['work'] as List? ?? const []))
+            WorkItem.fromJson(Map<String, dynamic>.from(w as Map)),
+        ],
+        syncedAt:
+            DateTime.tryParse(json['syncedAt'] as String? ?? '') ??
+                DateTime.now(),
+        source: DataSource.values.firstWhere(
+          (s) => s.name == json['source'],
+          orElse: () => DataSource.live,
+        ),
+        partialFailure: json['partialFailure'] as String?,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'profile': profile.toJson(),
+        'courses': [for (final c in courses) c.toJson()],
+        'schedule': schedule.toJson(),
+        'transcript': [for (final t in transcript) t.toJson()],
+        'work': [for (final w in work) w.toJson()],
+        'syncedAt': syncedAt.toIso8601String(),
+        'source': source.name,
+        if (partialFailure != null) 'partialFailure': partialFailure,
+      };
+
   PortalSnapshot copyWith({
     StudentProfile? profile,
     List<Course>? courses,

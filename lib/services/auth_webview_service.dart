@@ -97,11 +97,29 @@ class AuthWebViewService {
   /// jar (which includes the HttpOnly SSO tokens invisible to JavaScript) and
   /// falls back to `document.cookie` when the platform channel is unavailable.
   Future<Map<String, String>> captureCookies() async {
-    final native = await NativeCookieBridge.getCookies(portalUrl);
+    final out = <String, String>{};
+
+    // Grades and documents live on different DOE hosts, so the jar is read
+    // for each and the keys carry their host. That keeps one property's
+    // session from ever being sent to another.
+    for (final host in PortalHosts.all) {
+      final jar = await NativeCookieBridge.getCookies('https://$host');
+      jar.forEach((name, value) {
+        out[NativeCookieBridge.scopedKey(host, name)] = value;
+      });
+    }
+
+    // document.cookie only ever sees the page currently loaded, and misses
+    // HttpOnly entries — a fallback for when the platform channel is absent.
     final js = await _captureViaJavaScript();
-    if (native.isEmpty) return js;
-    // Native wins on conflict — it sees the authoritative jar.
-    return {...js, ...native};
+    js.forEach((name, value) {
+      out.putIfAbsent(
+        NativeCookieBridge.scopedKey(PortalHosts.teachHub, name),
+        () => value,
+      );
+    });
+
+    return out;
   }
 
   Future<Map<String, String>> _captureViaJavaScript() async {

@@ -7,6 +7,7 @@ import '../core/theme/app_theme.dart';
 import '../core/theme/ui_kit.dart';
 import '../models/portal_snapshot.dart';
 import '../storage/state_providers.dart';
+import 'archive_screen.dart';
 import 'theme_picker_screen.dart';
 import 'widgets/app_shell.dart';
 
@@ -159,10 +160,22 @@ class SettingsTab extends ConsumerWidget {
               onTap: () => ref.read(portalProvider.notifier).refresh(),
             ),
             _SettingsRow(
+              icon: Icons.inventory_2_rounded,
+              title: 'Saved history',
+              subtitle: 'Past grades, transcripts and DOE documents kept '
+                  'on this device',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const ArchiveScreen(),
+                ),
+              ),
+            ),
+            _SettingsRow(
               icon: Icons.logout_rounded,
               iconColor: p.danger,
               title: 'Sign out',
-              subtitle: 'Clears stored cookies and local data',
+              subtitle: 'Clears your session. Saved history stays on '
+                  'this device.',
               onTap: () => _confirmSignOut(context, ref),
             ),
           ],
@@ -206,8 +219,9 @@ class SettingsTab extends ConsumerWidget {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Sign out?'),
         content: const Text(
-          'This clears your saved session and cached portal data from this '
-          'device. You can sign in again any time.',
+          'This clears your session and the offline copy of the portal. Your '
+          'saved history — past grades, transcripts and documents — stays on '
+          'this device.',
         ),
         actions: [
           TextButton(

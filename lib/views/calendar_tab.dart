@@ -12,7 +12,7 @@ const _monthNames = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-/// Month view of everything due, plus the day's schedule underneath.
+/// Month view of everything due, with the selected day listed below.
 class CalendarTab extends ConsumerStatefulWidget {
   const CalendarTab({super.key});
 
@@ -56,7 +56,6 @@ class _CalendarTabState extends ConsumerState<CalendarTab> {
 
     final byDay = ref.watch(workByDayProvider);
     final selectedItems = byDay[_selected] ?? const <WorkItem>[];
-    final schedule = ref.watch(scheduleProvider);
     final isToday = _isSameDay(_selected, DateTime.now());
 
     return ScreenScaffold(
@@ -119,15 +118,6 @@ class _CalendarTabState extends ConsumerState<CalendarTab> {
             FadeSlideIn(index: i, child: _EventRow(item: item)),
             const SizedBox(height: 8),
           ],
-        if (isToday && schedule != null && schedule.available) ...[
-          const SizedBox(height: 20),
-          const SectionLabel("Today's periods"),
-          const SizedBox(height: 10),
-          for (final period in schedule.periods) ...[
-            _PeriodRow(entry: period),
-            const SizedBox(height: 8),
-          ],
-        ],
       ],
     );
   }
@@ -358,77 +348,6 @@ class _EventRow extends StatelessWidget {
           ),
           if (item.submitted)
             Icon(Icons.check_circle_rounded, size: 18, color: p.gradeA),
-        ],
-      ),
-    );
-  }
-}
-
-class _PeriodRow extends StatelessWidget {
-  final ScheduleEntry entry;
-
-  const _PeriodRow({required this.entry});
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    final tt = Theme.of(context).textTheme;
-    final isNow = entry.isCurrent;
-
-    return SurfaceCard(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-      borderColor: isNow ? p.accent.withValues(alpha: 0.45) : null,
-      child: Row(
-        children: [
-          Container(
-            width: 32,
-            height: 32,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: (isNow ? p.accent : p.gradeB).withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: Text(
-              '${entry.period}',
-              style: tt.labelMedium?.copyWith(
-                color: isNow ? p.accent : p.gradeB,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  entry.courseTitle.isEmpty
-                      ? 'Period ${entry.period}'
-                      : entry.courseTitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: tt.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: isNow ? p.accent : p.textPrimary,
-                  ),
-                ),
-                if (entry.teacherName.isNotEmpty || entry.room.isNotEmpty)
-                  Text(
-                    [
-                      if (entry.teacherName.isNotEmpty) entry.teacherName,
-                      if (entry.room.isNotEmpty) 'Room ${entry.room}',
-                    ].join('  ·  '),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: tt.bodySmall?.copyWith(color: p.textTertiary),
-                  ),
-              ],
-            ),
-          ),
-          Text(
-            clockTime(entry.startTime),
-            style: tt.labelSmall?.copyWith(color: p.textSecondary),
-          ),
         ],
       ),
     );

@@ -7,9 +7,10 @@ import 'analytics_tab.dart';
 import 'assignments_tab.dart';
 import 'calendar_tab.dart';
 import 'grades_tab.dart';
+import 'schedule_tab.dart';
 import 'settings_tab.dart';
 
-/// Five tabs: Grades, Calendar, Assignments, Analytics, Settings.
+/// Six tabs: Grades, Schedule, Calendar, Work, Stats, Settings.
 class RootShell extends ConsumerStatefulWidget {
   const RootShell({super.key});
 
@@ -22,6 +23,7 @@ class _RootShellState extends ConsumerState<RootShell> {
 
   static const _screens = [
     GradesTab(),
+    ScheduleTab(),
     CalendarTab(),
     AssignmentsTab(),
     AnalyticsTab(),
@@ -30,9 +32,10 @@ class _RootShellState extends ConsumerState<RootShell> {
 
   static const _items = [
     (icon: Icons.school_rounded, label: 'Grades'),
+    (icon: Icons.schedule_rounded, label: 'Schedule'),
     (icon: Icons.calendar_month_rounded, label: 'Calendar'),
-    (icon: Icons.assignment_rounded, label: 'Assignments'),
-    (icon: Icons.insights_rounded, label: 'Analytics'),
+    (icon: Icons.assignment_rounded, label: 'Work'),
+    (icon: Icons.insights_rounded, label: 'Stats'),
     (icon: Icons.settings_rounded, label: 'Settings'),
   ];
 
@@ -100,7 +103,7 @@ class _NavItem extends StatelessWidget {
         duration: const Duration(milliseconds: 200),
         curve: Curves.easeOut,
         padding: const EdgeInsets.symmetric(vertical: 7),
-        margin: const EdgeInsets.symmetric(horizontal: 3),
+        margin: const EdgeInsets.symmetric(horizontal: 2),
         decoration: BoxDecoration(
           color: active ? p.accent.withValues(alpha: 0.10) : Colors.transparent,
           borderRadius: BorderRadius.circular(14),
@@ -108,18 +111,22 @@ class _NavItem extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: color, size: 21),
+            Icon(icon, color: color, size: 20),
             const SizedBox(height: 3),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.clip,
-              softWrap: false,
-              style: TextStyle(
-                color: color,
-                fontSize: 9,
-                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                letterSpacing: 0.1,
+            // Six tabs on a narrow phone leave little room, and the text scale
+            // is the reader's to choose — shrink to fit rather than clip.
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                maxLines: 1,
+                softWrap: false,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 9,
+                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                  letterSpacing: 0.1,
+                ),
               ),
             ),
           ],
