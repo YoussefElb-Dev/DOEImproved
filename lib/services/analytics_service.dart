@@ -181,10 +181,7 @@ class AnalyticsService {
         'trigonometry', 'precalc'])) {
       return 'Math';
     }
-    if (has(['physics', 'chemistry', 'biology', 'science', 'earth',
-        'living env', 'anatomy'])) {
-      return 'Science';
-    }
+
     if (has(['english', 'literature', 'writing', 'lit ', 'ela', 'reading'])) {
       return 'English';
     }
@@ -196,9 +193,14 @@ class AnalyticsService {
         'mandarin', 'arabic'])) {
       return 'Language';
     }
+    // Checked before Science: "AP Computer Science" is a computing course.
     if (has(['computer', 'programming', 'coding', 'software', 'technology',
         'engineering'])) {
       return 'Tech';
+    }
+    if (has(['physics', 'chemistry', 'biology', 'science', 'earth',
+        'living env', 'anatomy'])) {
+      return 'Science';
     }
     if (has(['art', 'music', 'drawing', 'theater', 'theatre', 'ceramics',
         'band', 'chorus', 'studio'])) {

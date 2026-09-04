@@ -99,12 +99,24 @@ void main() {
         ),
       );
 
+  /// A tall surface so the whole screen mounts.
+  ///
+  /// `ListView` builds lazily: at phone height everything below the fold is
+  /// never created, and `find.text` searches the element tree, so those
+  /// sections would be invisible to the test rather than merely off-screen.
+  void useTallViewport(WidgetTester tester) {
+    tester.view.physicalSize = const Size(520, 3400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+  }
+
   /// Renders [screen] and lets the notifier and entry animations resolve.
   Future<void> show(
     WidgetTester tester,
     PortalSnapshot data,
     Widget screen,
   ) async {
+    useTallViewport(tester);
     await tester.pumpWidget(harness(data, screen));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 900));
@@ -123,7 +135,8 @@ void main() {
       expect(find.text('LIVE'), findsOneWidget);
       expect(find.text('Semester Overview'), findsOneWidget);
       expect(find.text('ALL CLASSES'), findsOneWidget);
-      expect(find.text('AP Calculus BC'), findsOneWidget);
+      // Named twice: once as a course card, once as the top performer.
+      expect(find.text('AP Calculus BC'), findsWidgets);
       expect(find.text('AP Physics C'), findsOneWidget);
       expect(find.text('Current GPA'), findsOneWidget);
 
@@ -243,10 +256,10 @@ void main() {
 
       expect(find.textContaining('SORT BY DUE DATE'), findsOneWidget);
 
-      await tester.tap(find.text('Sort'));
-      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.byKey(const Key('sort-button')));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Course').last);
-      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
 
       expect(find.textContaining('SORT BY COURSE'), findsOneWidget);
 
@@ -301,6 +314,7 @@ void main() {
         (tester) async {
       late WidgetRef captured;
 
+      useTallViewport(tester);
       await tester.pumpWidget(
         ProviderScope(
           overrides: [

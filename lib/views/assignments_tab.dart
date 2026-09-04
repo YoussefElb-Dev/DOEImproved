@@ -201,6 +201,7 @@ class _Controls extends StatelessWidget {
         ),
         const SizedBox(width: 8),
         PopupMenuButton<_Sort>(
+          key: const Key('sort-button'),
           tooltip: 'Sort',
           color: p.surface,
           initialValue: sort,
@@ -216,6 +217,7 @@ class _Controls extends StatelessWidget {
         ),
         const SizedBox(width: 6),
         PopupMenuButton<String?>(
+          key: const Key('filter-button'),
           tooltip: 'Filter by course',
           color: p.surface,
           onSelected: onFilter,
