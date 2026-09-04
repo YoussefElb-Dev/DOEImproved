@@ -7,6 +7,8 @@ import '../models/archive_models.dart';
 import '../services/document_service.dart';
 import '../storage/archive_store.dart';
 import '../storage/state_providers.dart';
+import 'document_auth_screen.dart';
+import 'document_viewer_screen.dart';
 
 /// Everything the app has kept: the DOE's own PDFs, and a dated record of the
 /// grades as they stood each day.
@@ -192,12 +194,16 @@ class _DownloadCard extends ConsumerWidget {
     String? message;
     var messageColour = p.textSecondary;
     final result = state.valueOrNull;
+    final needsSignIn = result?.needsSignIn ?? false;
     if (state.hasError) {
       message = '${state.error}';
       messageColour = p.danger;
     } else if (result != null) {
       if (result.failure != null) {
-        message = result.failure;
+        message = result.needsSignIn
+            ? '${result.failure} The gradebook and the document site are '
+                'separate logins.'
+            : result.failure;
         messageColour = p.warning;
       } else {
         final parts = [
@@ -228,14 +234,16 @@ class _DownloadCard extends ConsumerWidget {
               FilledButton(
                 onPressed: busy
                     ? null
-                    : () => ref.read(documentSyncProvider.notifier).run(),
+                    : () => needsSignIn
+                        ? signInToDocuments(context, ref)
+                        : ref.read(documentSyncProvider.notifier).run(),
                 child: busy
                     ? const SizedBox(
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('Fetch'),
+                    : Text(needsSignIn ? 'Sign in' : 'Fetch'),
               ),
             ],
           ),
@@ -264,6 +272,11 @@ class _DocumentRow extends StatelessWidget {
 
     return SurfaceCard(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => DocumentViewerScreen(document: document),
+        ),
+      ),
       child: Row(
         children: [
           Icon(Icons.picture_as_pdf_rounded, size: 20, color: p.danger),
@@ -293,6 +306,7 @@ class _DocumentRow extends StatelessWidget {
               child: Icon(Icons.info_outline_rounded,
                   size: 17, color: p.textTertiary),
             ),
+          Icon(Icons.chevron_right_rounded, size: 20, color: p.textTertiary),
         ],
       ),
     );
@@ -534,4 +548,22 @@ class _FrozenRow extends StatelessWidget {
       ),
     );
   }
+}
+
+
+/// Signs in to the DOE document site, then retries the download.
+///
+/// The captured cookies are merged into the existing session rather than
+/// replacing it, so this never costs the gradebook login.
+Future<void> signInToDocuments(BuildContext context, WidgetRef ref) async {
+  final navigator = Navigator.of(context);
+  final cookies = await navigator.push<Map<String, String>>(
+    MaterialPageRoute<Map<String, String>>(
+      builder: (_) => const DocumentAuthScreen(),
+    ),
+  );
+  if (cookies == null || cookies.isEmpty) return;
+
+  await ref.read(sessionProvider.notifier).addCookies(cookies);
+  await ref.read(documentSyncProvider.notifier).run();
 }

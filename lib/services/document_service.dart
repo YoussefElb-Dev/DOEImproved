@@ -15,10 +15,18 @@ class DocumentSyncResult {
   final List<TranscriptRecord> transcript;
   final String? failure;
 
+  /// The DOE document site wants its own sign-in.
+  ///
+  /// Deliberately not an [AuthExpiredException]: that signal drops the
+  /// session and sends the whole app back to login, and being logged out of
+  /// the document site says nothing about the gradebook session.
+  final bool needsSignIn;
+
   const DocumentSyncResult({
     this.saved = const [],
     this.transcript = const [],
     this.failure,
+    this.needsSignIn = false,
   });
 
   bool get isEmpty => saved.isEmpty && transcript.isEmpty;
@@ -72,20 +80,29 @@ class DocumentService {
     ArchiveStore store,
   ) async {
     if (cookies.isEmpty) {
-      return const DocumentSyncResult(failure: 'Not signed in.');
+      return const DocumentSyncResult(
+        failure: 'Sign in to the DOE document site to fetch your transcript.',
+        needsSignIn: true,
+      );
     }
 
     final http.Response listing;
     try {
       listing = await _get(Uri.parse(documentsUrl), cookies);
     } on AuthExpiredException {
-      rethrow;
+      return const DocumentSyncResult(
+        failure: 'The DOE document site needs its own sign-in.',
+        needsSignIn: true,
+      );
     } catch (e) {
       return DocumentSyncResult(failure: 'Could not open the documents page: $e');
     }
 
     if (_looksLikeLogin(listing)) {
-      throw const AuthExpiredException('Session expired');
+      return const DocumentSyncResult(
+        failure: 'The DOE document site needs its own sign-in.',
+        needsSignIn: true,
+      );
     }
 
     final links = _pdfLinks(listing.body, listing.request?.url);
@@ -115,7 +132,12 @@ class DocumentService {
           kind: link.kind,
           textExtracted: text.reliable,
         );
-        if (document != null) saved.add(document);
+        if (document != null) {
+          saved.add(document);
+          if (text.text.trim().isNotEmpty) {
+            await store.saveDocumentText(document.id, text.text);
+          }
+        }
 
         if (text.reliable && link.kind == 'transcript') {
           transcript.addAll(_transcriptParser.parse(text.lines));

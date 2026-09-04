@@ -59,6 +59,13 @@ class SessionController extends AsyncNotifier<Map<String, String>> {
   /// Called when the login WebView completes and hands us fresh cookies.
   void adopt(Map<String, String> cookies) => state = AsyncData(cookies);
 
+  /// Folds in cookies from a second sign-in, such as the document site.
+  Future<void> addCookies(Map<String, String> extra) async {
+    if (extra.isEmpty) return;
+    final merged = await ref.read(authServiceProvider).mergeSession(extra);
+    state = AsyncData(merged);
+  }
+
   /// The portal rejected our cookies — drop them so the UI re-authenticates.
   void markExpired() {
     if (state.valueOrNull?.isEmpty ?? false) return;

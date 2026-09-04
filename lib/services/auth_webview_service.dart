@@ -141,6 +141,25 @@ class AuthWebViewService {
     }
   }
 
+  /// Cookies for a single DOE host, keyed by that host.
+  ///
+  /// Used when signing in to the document site separately from the gradebook.
+  static Future<Map<String, String>> captureCookiesFor(String host) async {
+    final jar = await NativeCookieBridge.getCookies('https://$host');
+    return {
+      for (final entry in jar.entries)
+        NativeCookieBridge.scopedKey(host, entry.key): entry.value,
+    };
+  }
+
+  /// Adds cookies to the stored session without disturbing the rest, so a
+  /// second sign-in never costs the first one.
+  Future<Map<String, String>> mergeSession(Map<String, String> extra) async {
+    final merged = {...await restoreSession(), ...extra};
+    await saveSession(merged);
+    return merged;
+  }
+
   Future<void> saveSession(Map<String, String> cookies) async {
     await _storage.write(key: _sessionKey, value: jsonEncode(cookies));
     await _storage.write(

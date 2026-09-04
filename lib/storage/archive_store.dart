@@ -237,6 +237,30 @@ class ArchiveStore {
     }
   }
 
+  /// Stores the text read out of a document, beside the document.
+  ///
+  /// Kept so the viewer has something to show when the PDF itself will not
+  /// render, and so a search over saved documents is possible later without
+  /// re-parsing every file.
+  Future<void> saveDocumentText(String id, String text) async {
+    try {
+      final dir = await _dir('documents');
+      await File('${dir.path}/$id.txt').writeAsString(text, flush: true);
+    } catch (_) {}
+  }
+
+  Future<String?> readDocumentText(String id) async {
+    try {
+      final dir = await _dir('documents');
+      final file = File('${dir.path}/$id.txt');
+      if (!await file.exists()) return null;
+      final text = await file.readAsString();
+      return text.trim().isEmpty ? null : text;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// The saved file itself, for opening or sharing.
   Future<File?> documentFile(String id) async {
     try {
