@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/ui_kit.dart';
 import '../../models/grade_models.dart';
 import '../../services/calculator_service.dart';
 
 /// Interactive "What-If" slider: simulates the score on a hypothetical
-/// assignment in a chosen category and live-recalculates the class
-/// average via [CalculatorService].
+/// assignment in a chosen category and live-recalculates the class average
+/// through [CalculatorService].
 class WhatIfSlider extends StatefulWidget {
   final Course course;
   final String categoryName;
@@ -24,65 +25,66 @@ class WhatIfSlider extends StatefulWidget {
 }
 
 class _WhatIfSliderState extends State<WhatIfSlider> {
-  double _hypotheticalScore = 85.0; // percentage
+  double _hypotheticalScore = 85;
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final tt = Theme.of(context).textTheme;
-    final projected = widget.calculator.calculateWhatIf(
-      widget.course,
-      [
-        Assignment(
-          id: 'whatif',
-          title: 'Hypothetical ${widget.categoryName}',
-          category: widget.categoryName,
-          score: _hypotheticalScore,
-          maxScore: 100,
-          dueDate: DateTime.now(),
-          status: AssignmentStatus.upcoming,
-        ),
-      ],
-    );
+
+    final projected = widget.calculator.calculateWhatIf(widget.course, [
+      Assignment(
+        id: 'whatif',
+        title: 'Hypothetical ${widget.categoryName}',
+        category: widget.categoryName,
+        score: _hypotheticalScore,
+        maxScore: 100,
+        dueDate: DateTime.now(),
+        status: AssignmentStatus.upcoming,
+      ),
+    ]);
+
     // Compare against the recomputed average, not the portal's printed score,
-    // so the delta always matches the number the projection is derived from.
+    // so the delta always matches the number the projection derives from.
     final baseline = widget.calculator.calculateCourseAverage(widget.course);
     final delta = projected - baseline;
-    final projectedLetter =
-        widget.calculator.letterGradeFor(projected);
-    final color = AppColors.forLetterGrade(projectedLetter);
+    final projectedLetter = widget.calculator.letterGradeFor(projected);
+    final colour = p.forLetter(projectedLetter);
 
-    return GlassContainer(
-      padding: const EdgeInsets.all(20),
+    return SurfaceCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'WHAT-IF: ${widget.categoryName.toUpperCase()}',
-                style: tt.labelSmall?.copyWith(
-                  color: AppColors.textSecondary,
-                  letterSpacing: 1.8,
-                  fontWeight: FontWeight.w600,
+              Expanded(
+                child: Text(
+                  widget.categoryName.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: tt.labelSmall?.copyWith(
+                    color: p.textTertiary,
+                    letterSpacing: 1.4,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
               Text(
                 '${_hypotheticalScore.round()}%',
                 style: tt.titleMedium?.copyWith(
-                  color: color,
+                  color: colour,
                   fontWeight: FontWeight.w800,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
-              activeTrackColor: color,
-              inactiveTrackColor: AppColors.surfaceBorder,
-              thumbColor: color,
-              overlayColor: color.withValues(alpha: 0.15),
+              activeTrackColor: colour,
+              inactiveTrackColor: p.surfaceAlt,
+              thumbColor: colour,
+              overlayColor: colour.withValues(alpha: 0.15),
               trackHeight: 3,
             ),
             child: Slider(
@@ -93,40 +95,29 @@ class _WhatIfSliderState extends State<WhatIfSlider> {
               onChanged: (v) => setState(() => _hypotheticalScore = v),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
                 'Projected average',
-                style: tt.bodySmall
-                    ?.copyWith(color: AppColors.textSecondary),
+                style: tt.bodySmall?.copyWith(color: p.textSecondary),
               ),
               Row(
                 children: [
                   Text(
                     projected.toStringAsFixed(1),
-                    style: tt.titleLarge?.copyWith(
+                    style: tt.titleMedium?.copyWith(
                       fontWeight: FontWeight.w800,
-                      color: color,
-                      letterSpacing: -0.5,
+                      color: colour,
+                      letterSpacing: -0.4,
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      '${delta >= 0 ? '+' : ''}${delta.toStringAsFixed(1)}',
-                      style: tt.labelSmall?.copyWith(
-                        color: color,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
+                  StatusPill(
+                    label:
+                        '${delta >= 0 ? '+' : ''}${delta.toStringAsFixed(1)}',
+                    color: delta >= 0 ? p.gradeA : p.danger,
                   ),
                 ],
               ),

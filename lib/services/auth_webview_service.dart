@@ -43,7 +43,9 @@ class AuthWebViewService {
         _probe = probe ?? GradeDataService() {
     controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(AppColors.background)
+      // Repainted from the active theme in didChangeDependencies; this is
+      // only the colour the view flashes before the first frame.
+      ..setBackgroundColor(const Color(0xFF0C0D10))
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (_) => onBusyChanged?.call(true),
@@ -171,6 +173,14 @@ class _AuthWebViewScreenState extends State<AuthWebViewScreen> {
   String? _error;
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Match the WebView's own backdrop to the theme so switching themes does
+    // not leave a mismatched frame behind the login page.
+    _auth.controller.setBackgroundColor(context.palette.background);
+  }
+
+  @override
   void initState() {
     super.initState();
     _auth = AuthWebViewService(
@@ -186,9 +196,10 @@ class _AuthWebViewScreenState extends State<AuthWebViewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final tt = Theme.of(context).textTheme;
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: p.background,
       appBar: AppBar(
         title: const Text('Sign in with NYCAPS'),
         centerTitle: true,
@@ -214,11 +225,11 @@ class _AuthWebViewScreenState extends State<AuthWebViewScreen> {
           if (_error != null)
             Container(
               width: double.infinity,
-              color: AppColors.gradeDF.withValues(alpha: 0.12),
+              color: p.danger.withValues(alpha: 0.12),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               child: Text(
                 'Could not reach the portal: $_error',
-                style: tt.bodySmall?.copyWith(color: AppColors.gradeDF),
+                style: tt.bodySmall?.copyWith(color: p.danger),
               ),
             ),
           Expanded(child: WebViewWidget(controller: _auth.controller)),

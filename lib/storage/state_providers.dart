@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/theme/app_palette.dart';
 import '../models/grade_models.dart';
 import '../models/portal_snapshot.dart';
 import '../models/schedule_models.dart';
+import '../services/analytics_service.dart';
 import '../services/auth_webview_service.dart';
 import '../services/calculator_service.dart';
 import '../services/grade_data_service.dart';
@@ -124,8 +126,15 @@ final transcriptProvider = Provider<List<TranscriptRecord>>(
   (ref) => ref.watch(_snapshot.select((s) => s?.transcript)) ?? const [],
 );
 
+/// Outstanding work, soonest first — what the grades feed and calendar show.
 final workItemsProvider = Provider<List<WorkItem>>(
   (ref) => ref.watch(_snapshot.select((s) => s?.openWork)) ?? const [],
+);
+
+/// Everything the portal published, including items already handed in. The
+/// assignments screen sorts by status, so it needs the completed ones too.
+final allWorkItemsProvider = Provider<List<WorkItem>>(
+  (ref) => ref.watch(_snapshot.select((s) => s?.work)) ?? const [],
 );
 
 final dataSourceProvider = Provider<DataSource?>(
@@ -165,6 +174,74 @@ class ProfileImageNotifier extends StateNotifier<String?> {
     if (mounted) state = null;
   }
 }
+
+// ─────────────────────────── theme ───────────────────────────
+
+/// The active theme. Persisted, so a choice survives a restart.
+final themeProvider = StateNotifierProvider<ThemeNotifier, AppPalette>(
+  (ref) => ThemeNotifier(),
+);
+
+class ThemeNotifier extends StateNotifier<AppPalette> {
+  ThemeNotifier() : super(AppPalette.midnight) {
+    SettingsStore.themeId().then((id) {
+      if (mounted && id != null) state = AppPalette.byName(id);
+    });
+  }
+
+  Future<void> select(AppThemeId id) async {
+    state = AppPalette.byId(id);
+    await SettingsStore.saveThemeId(id.name);
+  }
+}
+
+// ─────────────────────────── analytics ───────────────────────────
+
+final analyticsProvider = Provider<AnalyticsService>(
+  (ref) => const AnalyticsService(),
+);
+
+/// Credit-weighted GPA per term, oldest first — the overview trend chart.
+final termGpaSeriesProvider = Provider<List<TermGpa>>((ref) {
+  final transcript = ref.watch(transcriptProvider);
+  return ref.watch(analyticsProvider).termGpaSeries(transcript);
+});
+
+/// How many marks land in each letter band.
+final gradeDistributionProvider = Provider<Map<String, int>>((ref) {
+  final service = ref.watch(analyticsProvider);
+  return service.gradeDistribution(
+    ref.watch(transcriptProvider),
+    ref.watch(courseListProvider),
+  );
+});
+
+/// Average score per inferred subject area — the radar chart.
+final subjectPerformanceProvider = Provider<List<SubjectScore>>((ref) {
+  return ref.watch(analyticsProvider).subjectPerformance(
+        ref.watch(courseListProvider),
+      );
+});
+
+/// The best-scoring course this term.
+final topPerformerProvider = Provider<Course?>((ref) {
+  return ref.watch(analyticsProvider).topPerformer(
+        ref.watch(courseListProvider),
+      );
+});
+
+/// Work due, grouped by the calendar day it falls on.
+final workByDayProvider = Provider<Map<DateTime, List<WorkItem>>>((ref) {
+  final out = <DateTime, List<WorkItem>>{};
+  for (final w in ref.watch(_snapshot.select((s) => s?.work)) ?? const []) {
+    final day = DateTime(w.dueDate.year, w.dueDate.month, w.dueDate.day);
+    out.putIfAbsent(day, () => []).add(w);
+  }
+  for (final list in out.values) {
+    list.sort((a, b) => a.dueDate.compareTo(b.dueDate));
+  }
+  return out;
+});
 
 // ─────────────────────────── lifecycle ───────────────────────────
 

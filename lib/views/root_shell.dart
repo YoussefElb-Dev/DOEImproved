@@ -3,12 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/theme/app_theme.dart';
 import '../storage/state_providers.dart';
+import 'analytics_tab.dart';
+import 'assignments_tab.dart';
+import 'calendar_tab.dart';
 import 'grades_tab.dart';
-import 'schedule_tab.dart';
 import 'settings_tab.dart';
-import 'work_tab.dart';
 
-/// Root navigation shell with 4 tabs: Grades, Schedule, Work, Settings.
+/// Five tabs: Grades, Calendar, Assignments, Analytics, Settings.
 class RootShell extends ConsumerStatefulWidget {
   const RootShell({super.key});
 
@@ -21,15 +22,17 @@ class _RootShellState extends ConsumerState<RootShell> {
 
   static const _screens = [
     GradesTab(),
-    ScheduleTab(),
-    WorkTab(),
+    CalendarTab(),
+    AssignmentsTab(),
+    AnalyticsTab(),
     SettingsTab(),
   ];
 
   static const _items = [
-    (icon: Icons.grade_rounded, label: 'Grades'),
-    (icon: Icons.calendar_month_rounded, label: 'Schedule'),
-    (icon: Icons.assignment_rounded, label: 'Work'),
+    (icon: Icons.school_rounded, label: 'Grades'),
+    (icon: Icons.calendar_month_rounded, label: 'Calendar'),
+    (icon: Icons.assignment_rounded, label: 'Assignments'),
+    (icon: Icons.insights_rounded, label: 'Analytics'),
     (icon: Icons.settings_rounded, label: 'Settings'),
   ];
 
@@ -38,29 +41,30 @@ class _RootShellState extends ConsumerState<RootShell> {
     // A rejected session drops the cookies, which sends AuthGate back to login.
     listenForExpiredSession(ref);
 
-    final syncing = ref.watch(syncIndicatorProvider);
+    final p = context.palette;
 
     return Scaffold(
       extendBody: true,
       body: IndexedStack(index: _index, children: _screens),
-      bottomNavigationBar: GlassContainer(
-        padding: EdgeInsets.zero,
-        borderRadius: 0,
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: p.background,
+          border: Border(top: BorderSide(color: p.border)),
+        ),
         child: SafeArea(
           top: false,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 for (final (i, item) in _items.indexed)
-                  _NavItem(
-                    icon: item.icon,
-                    label: item.label,
-                    active: _index == i,
-                    // Only the Grades tab carries the sync badge.
-                    syncing: syncing && i == 0,
-                    onTap: () => setState(() => _index = i),
+                  Expanded(
+                    child: _NavItem(
+                      icon: item.icon,
+                      label: item.label,
+                      active: _index == i,
+                      onTap: () => setState(() => _index = i),
+                    ),
                   ),
               ],
             ),
@@ -75,7 +79,6 @@ class _NavItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool active;
-  final bool syncing;
   final VoidCallback onTap;
 
   const _NavItem({
@@ -83,55 +86,40 @@ class _NavItem extends StatelessWidget {
     required this.label,
     required this.active,
     required this.onTap,
-    this.syncing = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final color = active ? AppColors.gradeB : AppColors.textSecondary;
+    final p = context.palette;
+    final color = active ? p.accent : p.textTertiary;
+
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
+        duration: const Duration(milliseconds: 200),
         curve: Curves.easeOut,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(vertical: 7),
+        margin: const EdgeInsets.symmetric(horizontal: 3),
         decoration: BoxDecoration(
-          color: active
-              ? AppColors.gradeB.withValues(alpha: 0.10)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
+          color: active ? p.accent.withValues(alpha: 0.10) : Colors.transparent,
+          borderRadius: BorderRadius.circular(14),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Icon(icon, color: color, size: 23),
-                if (syncing)
-                  Positioned(
-                    right: -2,
-                    top: -2,
-                    child: Container(
-                      width: 7,
-                      height: 7,
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: AppColors.gradeA,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 4),
+            Icon(icon, color: color, size: 21),
+            const SizedBox(height: 3),
             Text(
               label,
+              maxLines: 1,
+              overflow: TextOverflow.clip,
+              softWrap: false,
               style: TextStyle(
                 color: color,
-                fontSize: 10,
+                fontSize: 9,
                 fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                letterSpacing: 0.3,
+                letterSpacing: 0.1,
               ),
             ),
           ],

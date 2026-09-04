@@ -4,11 +4,27 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Persists app preferences, including the user's chosen profile image.
+/// Persists app preferences: the chosen theme and the profile photo.
 class SettingsStore {
-  static const _profileImageKey = 'profile_image_path';
+  SettingsStore._();
 
-  Future<SharedPreferences> get _prefs => SharedPreferences.getInstance();
+  static const _profileImageKey = 'profile_image_path';
+  static const _themeKey = 'app_theme_id';
+
+  // ── theme ───────────────────────────────────────────────────────────
+
+  /// The saved theme's enum name, or null when the student never picked one.
+  static Future<String?> themeId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_themeKey);
+  }
+
+  static Future<void> saveThemeId(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_themeKey, id);
+  }
+
+  // ── profile photo ───────────────────────────────────────────────────
 
   static Future<String> profileImagePath() async {
     final prefs = await SharedPreferences.getInstance();

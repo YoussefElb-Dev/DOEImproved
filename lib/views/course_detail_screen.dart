@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/theme/app_theme.dart';
+import '../core/theme/ui_kit.dart';
 import '../models/grade_models.dart';
 import '../storage/state_providers.dart';
-import 'widgets/portal_shell.dart';
 import 'widgets/what_if_slider.dart';
 
-/// Full breakdown for one course: weighted categories, What-If projection,
+/// Full breakdown for one course: weighted categories, a What-If projection,
 /// and the graded assignment history.
 class CourseDetailScreen extends ConsumerWidget {
   final Course course;
@@ -16,9 +16,9 @@ class CourseDetailScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final p = context.palette;
     final tt = Theme.of(context).textTheme;
     final calculator = ref.read(calculatorProvider);
-    final gradeColor = AppColors.forLetterGrade(course.letterGrade);
 
     // Prefer the recomputed average — it reflects the same category weights
     // the What-If slider uses, so the two never disagree on screen.
@@ -26,7 +26,8 @@ class CourseDetailScreen extends ConsumerWidget {
     final score = computed > 0 ? computed : course.currentScore;
     final letter = course.letterGrade.isNotEmpty
         ? course.letterGrade
-        : calculator.letterGradeFor(score);
+        : (score > 0 ? calculator.letterGradeFor(score) : '');
+    final colour = letter.isEmpty ? p.textSecondary : p.forLetter(letter);
 
     return Scaffold(
       appBar: AppBar(
@@ -34,67 +35,75 @@ class CourseDetailScreen extends ConsumerWidget {
       ),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 36),
+          padding: const EdgeInsets.fromLTRB(18, 6, 18, 34),
           children: [
-            GlassContainer(
-              glow: gradeColor,
-              child: Row(
+            SurfaceCard(
+              child: Column(
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          course.teacherName.isEmpty
-                              ? 'Teacher not listed'
-                              : course.teacherName,
-                          style: tt.bodyMedium
-                              ?.copyWith(color: AppColors.textSecondary),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              course.teacherName.isEmpty
+                                  ? 'Teacher not listed'
+                                  : course.teacherName,
+                              style: tt.bodyMedium
+                                  ?.copyWith(color: p.textSecondary),
+                            ),
+                            if (course.code.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                course.code,
+                                style: tt.bodySmall
+                                    ?.copyWith(color: p.textTertiary),
+                              ),
+                            ],
+                          ],
                         ),
-                        if (course.code.isNotEmpty) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            course.code,
-                            style: tt.bodySmall
-                                ?.copyWith(color: AppColors.textSecondary),
+                      ),
+                      if (score > 0)
+                        Text(
+                          '${score.toStringAsFixed(1)}%',
+                          style: tt.headlineSmall?.copyWith(
+                            color: colour,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.5,
                           ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  Text(
-                    '${score.toStringAsFixed(1)}%',
-                    style: tt.headlineSmall?.copyWith(
-                      color: gradeColor,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Container(
-                    width: 44,
-                    height: 44,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: gradeColor.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(13),
-                      border: Border.all(
-                        color: gradeColor.withValues(alpha: 0.45),
-                        width: 1.5,
+                        ),
+                      const SizedBox(width: 10),
+                      Container(
+                        width: 42,
+                        height: 42,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: colour.withValues(alpha: 0.13),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: colour.withValues(alpha: 0.4),
+                            width: 1.4,
+                          ),
+                        ),
+                        child: Text(
+                          letter.isEmpty ? '—' : letter,
+                          style: tt.titleMedium?.copyWith(
+                            color: colour,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
                       ),
-                    ),
-                    child: Text(
-                      letter,
-                      style: tt.titleLarge?.copyWith(
-                        color: gradeColor,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+                    ],
                   ),
+                  if (score > 0) ...[
+                    const SizedBox(height: 14),
+                    ThinProgressBar(value: score / 100, color: colour),
+                  ],
                 ],
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 22),
 
             if (course.categories.isEmpty && course.assignments.isEmpty)
               const EmptyState(
@@ -105,19 +114,17 @@ class CourseDetailScreen extends ConsumerWidget {
               ),
 
             if (course.categories.isNotEmpty) ...[
-              const SectionLabel('CATEGORY BREAKDOWN'),
+              const SectionLabel('Category breakdown'),
               const SizedBox(height: 12),
               for (final (i, cat) in course.categories.indexed)
-                FadeSlideIn(
-                  index: i,
-                  child: _CategoryTile(category: cat),
-                ),
-              const SizedBox(height: 20),
-              const SectionLabel('WHAT-IF'),
-              const SizedBox(height: 6),
+                FadeSlideIn(index: i, child: _CategoryTile(category: cat)),
+              const SizedBox(height: 18),
+              const SectionLabel('What-if'),
+              const SizedBox(height: 5),
               Text(
-                'Drag a score to see how one more assignment would move your average.',
-                style: tt.bodySmall?.copyWith(color: AppColors.textSecondary),
+                'Drag a score to see how one more assignment would move your '
+                'average.',
+                style: tt.bodySmall?.copyWith(color: p.textSecondary),
               ),
               const SizedBox(height: 12),
               for (final cat in course.categories) ...[
@@ -131,13 +138,13 @@ class CourseDetailScreen extends ConsumerWidget {
             ],
 
             if (course.assignments.isNotEmpty) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               SectionLabel(
-                'ASSIGNMENTS',
+                'Assignments',
                 trailing: Text(
                   '${course.assignments.length}',
                   style: tt.labelSmall?.copyWith(
-                    color: AppColors.textSecondary,
+                    color: p.textTertiary,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -160,15 +167,16 @@ class _CategoryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final tt = Theme.of(context).textTheme;
     final pct = category.categoryScore;
-    final color = AppColors.forScore(pct);
+    final colour = p.forScore(pct);
     final hasPoints = category.totalPoints > 0;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: GlassContainer(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: SurfaceCard(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
         child: Column(
           children: [
             Row(
@@ -176,34 +184,24 @@ class _CategoryTile extends StatelessWidget {
                 Expanded(
                   child: Text(
                     category.name,
-                    style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                    style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
                   ),
                 ),
                 Text(
                   hasPoints ? '${pct.toStringAsFixed(1)}%' : 'No grades yet',
                   style: tt.bodyMedium?.copyWith(
-                    color: hasPoints ? color : AppColors.textSecondary,
+                    color: hasPoints ? colour : p.textTertiary,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 9),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0, end: hasPoints ? pct / 100 : 0),
-                duration: const Duration(milliseconds: 700),
-                curve: Curves.easeOutCubic,
-                builder: (_, v, __) => LinearProgressIndicator(
-                  value: v,
-                  minHeight: 6,
-                  backgroundColor: AppColors.surfaceBorder,
-                  valueColor: AlwaysStoppedAnimation(color),
-                ),
-              ),
+            ThinProgressBar(
+              value: hasPoints ? pct / 100 : 0,
+              color: colour,
             ),
             const SizedBox(height: 7),
             Row(
@@ -214,13 +212,11 @@ class _CategoryTile extends StatelessWidget {
                       ? '${category.earnedPoints.toStringAsFixed(0)} / '
                           '${category.totalPoints.toStringAsFixed(0)} pts'
                       : '',
-                  style:
-                      tt.labelSmall?.copyWith(color: AppColors.textSecondary),
+                  style: tt.labelSmall?.copyWith(color: p.textTertiary),
                 ),
                 Text(
                   'weight ${category.weightPercentage.toStringAsFixed(0)}%',
-                  style:
-                      tt.labelSmall?.copyWith(color: AppColors.textSecondary),
+                  style: tt.labelSmall?.copyWith(color: p.textTertiary),
                 ),
               ],
             ),
@@ -236,33 +232,33 @@ class _AssignmentTile extends StatelessWidget {
 
   const _AssignmentTile({required this.assignment});
 
-  (Color, String) get _status => switch (assignment.status) {
-        AssignmentStatus.missing => (AppColors.gradeDF, 'Missing'),
-        AssignmentStatus.pending => (AppColors.gradeC, 'Pending'),
-        AssignmentStatus.upcoming => (AppColors.gradeB, 'Upcoming'),
-        AssignmentStatus.graded => (
-            AppColors.forScore(assignment.percentage),
-            'Graded',
-          ),
-      };
-
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final tt = Theme.of(context).textTheme;
-    final (color, statusLabel) = _status;
+
+    final (colour, statusLabel) = switch (assignment.status) {
+      AssignmentStatus.missing => (p.danger, 'Missing'),
+      AssignmentStatus.pending => (p.warning, 'Pending'),
+      AssignmentStatus.upcoming => (p.gradeB, 'Upcoming'),
+      AssignmentStatus.graded => (
+          p.forScore(assignment.percentage),
+          'Graded',
+        ),
+    };
     final isGraded = assignment.status == AssignmentStatus.graded;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: GlassContainer(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+      child: SurfaceCard(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         child: Row(
           children: [
             Container(
               width: 3,
-              height: 34,
+              height: 32,
               decoration: BoxDecoration(
-                color: color,
+                color: colour,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -273,15 +269,14 @@ class _AssignmentTile extends StatelessWidget {
                 children: [
                   Text(
                     assignment.title,
-                    style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                    style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     '${assignment.category} · $statusLabel',
-                    style:
-                        tt.labelSmall?.copyWith(color: AppColors.textSecondary),
+                    style: tt.labelSmall?.copyWith(color: p.textTertiary),
                   ),
                 ],
               ),
@@ -295,22 +290,18 @@ class _AssignmentTile extends StatelessWidget {
                     '${assignment.score.toStringAsFixed(0)}/'
                     '${assignment.maxScore.toStringAsFixed(0)}',
                     style: tt.bodyMedium?.copyWith(
-                      color: color,
+                      color: colour,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
                   Text(
                     '${assignment.percentage.toStringAsFixed(0)}%',
-                    style: tt.labelSmall
-                        ?.copyWith(color: AppColors.textSecondary),
+                    style: tt.labelSmall?.copyWith(color: p.textTertiary),
                   ),
                 ],
               )
             else
-              Text(
-                '—',
-                style: tt.bodyMedium?.copyWith(color: AppColors.textSecondary),
-              ),
+              Text('—', style: tt.bodyMedium?.copyWith(color: p.textTertiary)),
           ],
         ),
       ),

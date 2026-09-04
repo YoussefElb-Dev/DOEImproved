@@ -9,25 +9,30 @@ import 'views/root_shell.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.light,
-      statusBarBrightness: Brightness.dark,
-    ),
-  );
   runApp(const ProviderScope(child: GradlyApp()));
 }
 
-class GradlyApp extends StatelessWidget {
+class GradlyApp extends ConsumerWidget {
   const GradlyApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final palette = ref.watch(themeProvider);
+
+    // Keep the status bar legible against whichever theme is active.
+    SystemChrome.setSystemUIOverlayStyle(
+      SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness:
+            palette.isDark ? Brightness.light : Brightness.dark,
+        statusBarBrightness: palette.isDark ? Brightness.dark : Brightness.light,
+      ),
+    );
+
     return MaterialApp(
       title: 'Gradly',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.dark,
+      theme: AppTheme.from(palette),
       home: const AuthGate(),
     );
   }
@@ -67,38 +72,32 @@ class _SplashScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final tt = Theme.of(context).textTheme;
+
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: p.background,
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 78,
-              height: 78,
+              width: 74,
+              height: 74,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(22),
-                gradient: const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [AppColors.gradeB, AppColors.gradeA],
-                ),
+                borderRadius: BorderRadius.circular(21),
+                color: p.accent,
                 boxShadow: [
                   BoxShadow(
-                    color: AppColors.gradeB.withValues(alpha: 0.35),
-                    blurRadius: 34,
-                    spreadRadius: 2,
+                    color: p.accent.withValues(alpha: 0.3),
+                    blurRadius: 32,
+                    spreadRadius: 1,
                   ),
                 ],
               ),
-              child: const Icon(
-                Icons.school_rounded,
-                size: 40,
-                color: AppColors.background,
-              ),
+              child: Icon(Icons.school_rounded, size: 38, color: p.onAccent),
             ),
-            const SizedBox(height: 22),
+            const SizedBox(height: 20),
             Text(
               'Gradly',
               style: tt.titleLarge?.copyWith(
@@ -106,11 +105,11 @@ class _SplashScreen extends StatelessWidget {
                 letterSpacing: -0.5,
               ),
             ),
-            const SizedBox(height: 26),
-            const SizedBox(
-              width: 22,
-              height: 22,
-              child: CircularProgressIndicator(strokeWidth: 2.2),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2.2, color: p.accent),
             ),
           ],
         ),
