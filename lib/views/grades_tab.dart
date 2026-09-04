@@ -155,7 +155,9 @@ class GradesTab extends ConsumerWidget {
 
   void _open(BuildContext context, Course course) {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => CourseDetailScreen(course: course)),
+      MaterialPageRoute<void>(
+        builder: (_) => CourseDetailScreen(course: course),
+      ),
     );
   }
 }

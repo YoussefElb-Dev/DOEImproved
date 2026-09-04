@@ -209,7 +209,10 @@ class _Controls extends StatelessWidget {
             for (final s in _Sort.values)
               PopupMenuItem(value: s, child: Text(s.label)),
           ],
-          child: _ControlChip(icon: Icons.swap_vert_rounded, label: 'Sort'),
+          child: const _ControlChip(
+            icon: Icons.swap_vert_rounded,
+            label: 'Sort',
+          ),
         ),
         const SizedBox(width: 6),
         PopupMenuButton<String?>(

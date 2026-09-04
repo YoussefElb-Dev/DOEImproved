@@ -122,7 +122,9 @@ class SettingsTab extends ConsumerWidget {
               title: 'Theme',
               value: palette.name,
               onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const ThemePickerScreen()),
+                MaterialPageRoute<void>(
+                  builder: (_) => const ThemePickerScreen(),
+                ),
               ),
             ),
           ],

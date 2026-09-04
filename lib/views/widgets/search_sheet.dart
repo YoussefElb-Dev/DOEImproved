@@ -187,7 +187,7 @@ class _SearchSheetState extends ConsumerState<_SearchSheet> {
                         onTap: () {
                           Navigator.of(context).pop();
                           Navigator.of(context).push(
-                            MaterialPageRoute(
+                            MaterialPageRoute<void>(
                               builder: (_) => CourseDetailScreen(course: c),
                             ),
                           );

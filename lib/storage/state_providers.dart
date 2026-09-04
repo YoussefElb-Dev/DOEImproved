@@ -233,7 +233,8 @@ final topPerformerProvider = Provider<Course?>((ref) {
 /// Work due, grouped by the calendar day it falls on.
 final workByDayProvider = Provider<Map<DateTime, List<WorkItem>>>((ref) {
   final out = <DateTime, List<WorkItem>>{};
-  for (final w in ref.watch(_snapshot.select((s) => s?.work)) ?? const []) {
+  final work = ref.watch(_snapshot.select((s) => s?.work)) ?? const <WorkItem>[];
+  for (final w in work) {
     final day = DateTime(w.dueDate.year, w.dueDate.month, w.dueDate.day);
     out.putIfAbsent(day, () => []).add(w);
   }
