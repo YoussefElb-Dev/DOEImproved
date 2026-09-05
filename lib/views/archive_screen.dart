@@ -7,8 +7,8 @@ import '../models/archive_models.dart';
 import '../services/document_service.dart';
 import '../storage/archive_store.dart';
 import '../storage/state_providers.dart';
-import 'document_auth_screen.dart';
 import 'document_viewer_screen.dart';
+import 'documents_browser_screen.dart';
 
 /// Everything the app has kept: the DOE's own PDFs, and a dated record of the
 /// grades as they stood each day.
@@ -194,15 +194,14 @@ class _DownloadCard extends ConsumerWidget {
     String? message;
     var messageColour = p.textSecondary;
     final result = state.valueOrNull;
-    final needsSignIn = result?.needsSignIn ?? false;
     if (state.hasError) {
       message = '${state.error}';
       messageColour = p.danger;
     } else if (result != null) {
       if (result.failure != null) {
         message = result.needsSignIn
-            ? '${result.failure} The gradebook and the document site are '
-                'separate logins.'
+            ? 'The DOE document site has its own sign-in. Tap Open and log in '
+                'there — it will not affect your gradebook session.'
             : result.failure;
         messageColour = p.warning;
       } else {
@@ -226,24 +225,33 @@ class _DownloadCard extends ConsumerWidget {
               Icon(Icons.cloud_download_rounded, size: 20, color: p.accent),
               const SizedBox(width: 14),
               Expanded(
-                child: Text(
-                  'Download from the DOE',
-                  style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Get them from the DOE',
+                      style:
+                          tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Opens the DOE page. Tap a document there and Gradly '
+                      'keeps a copy.',
+                      style: tt.bodySmall?.copyWith(color: p.textTertiary),
+                    ),
+                  ],
                 ),
               ),
+              const SizedBox(width: 10),
               FilledButton(
-                onPressed: busy
-                    ? null
-                    : () => needsSignIn
-                        ? signInToDocuments(context, ref)
-                        : ref.read(documentSyncProvider.notifier).run(),
+                onPressed: busy ? null : () => openDocuments(context, ref),
                 child: busy
                     ? const SizedBox(
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : Text(needsSignIn ? 'Sign in' : 'Fetch'),
+                    : const Text('Open'),
               ),
             ],
           ),
@@ -551,19 +559,35 @@ class _FrozenRow extends StatelessWidget {
 }
 
 
-/// Signs in to the DOE document site, then retries the download.
+/// Opens the DOE document site, then saves whatever was found there.
 ///
-/// The captured cookies are merged into the existing session rather than
-/// replacing it, so this never costs the gradebook login.
-Future<void> signInToDocuments(BuildContext context, WidgetRef ref) async {
+/// The page builds its document list in JavaScript, so the list cannot be read
+/// over plain HTTP — the browser screen loads the real page, finds the links
+/// in the rendered DOM, and catches any download the student taps.
+///
+/// Cookies captured there are merged into the session rather than replacing
+/// it, so this never costs the gradebook login.
+Future<void> openDocuments(BuildContext context, WidgetRef ref) async {
   final navigator = Navigator.of(context);
-  final cookies = await navigator.push<Map<String, String>>(
-    MaterialPageRoute<Map<String, String>>(
-      builder: (_) => const DocumentAuthScreen(),
+  final messenger = ScaffoldMessenger.of(context);
+
+  final result = await navigator.push<DocumentsBrowserResult>(
+    MaterialPageRoute<DocumentsBrowserResult>(
+      builder: (_) => const DocumentsBrowserScreen(),
     ),
   );
-  if (cookies == null || cookies.isEmpty) return;
+  if (result == null) return;
 
-  await ref.read(sessionProvider.notifier).addCookies(cookies);
-  await ref.read(documentSyncProvider.notifier).run();
+  if (result.cookies.isNotEmpty) {
+    await ref.read(sessionProvider.notifier).addCookies(result.cookies);
+  }
+  if (result.links.isEmpty) {
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('Nothing was captured. Tap a document on the page.'),
+      ),
+    );
+    return;
+  }
+  await ref.read(documentSyncProvider.notifier).saveFound(result.links);
 }

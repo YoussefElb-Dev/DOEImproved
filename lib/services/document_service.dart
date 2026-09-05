@@ -118,15 +118,40 @@ class DocumentService {
       );
     }
 
+    return downloadAll(links, cookies, store);
+  }
+
+  /// Downloads, reads and stores each link.
+  ///
+  /// Shared by the plain HTTP scrape and by the links the WebView finds in the
+  /// rendered page, because everything after "here is a URL" is the same.
+  Future<DocumentSyncResult> downloadAll(
+    List<DocumentLink> links,
+    Map<String, String> cookies,
+    ArchiveStore store,
+  ) async {
+    if (links.isEmpty) {
+      return const DocumentSyncResult(
+        failure: 'No documents are posted for you right now.',
+      );
+    }
+
     final saved = <SavedDocument>[];
     final transcript = <TranscriptRecord>[];
+    var rejected = 0;
 
     for (final link in links.take(maxDocuments)) {
       try {
         final response = await _get(link.url, cookies);
         final bytes = response.bodyBytes;
-        if (bytes.isEmpty || bytes.length > maxDocumentBytes) continue;
-        if (!_isPdf(bytes)) continue;
+        if (bytes.isEmpty || bytes.length > maxDocumentBytes) {
+          rejected++;
+          continue;
+        }
+        if (!_isPdf(bytes)) {
+          rejected++;
+          continue;
+        }
 
         final text = _extractor.extract(bytes);
 
@@ -149,14 +174,18 @@ class DocumentService {
           transcript.addAll(_transcriptParser.parse(text.lines));
         }
       } catch (_) {
-        // One unreadable document must not stop the rest.
+        rejected++;
         continue;
       }
     }
 
     if (saved.isEmpty) {
-      return const DocumentSyncResult(
-        failure: 'Found links, but none of them returned a readable PDF.',
+      return DocumentSyncResult(
+        failure: rejected > 0
+            ? 'Found $rejected link${rejected == 1 ? '' : 's'}, but none of '
+                'them returned a PDF. Open the documents page and tap the one '
+                'you want.'
+            : 'No documents are posted for you right now.',
       );
     }
     return DocumentSyncResult(
@@ -210,10 +239,10 @@ class DocumentService {
 
   /// Every link on the page that leads to a document, with a readable title
   /// and a guess at what kind of document it is.
-  List<_DocumentLink> _pdfLinks(String html, Uri? pageUrl) {
+  List<DocumentLink> _pdfLinks(String html, Uri? pageUrl) {
     final base = pageUrl ?? Uri.parse(documentsUrl);
     final document = html_parser.parse(html);
-    final out = <_DocumentLink>[];
+    final out = <DocumentLink>[];
     final seen = <String>{};
 
     for (final anchor in document.querySelectorAll('a[href]')) {
@@ -234,21 +263,21 @@ class DocumentService {
       if (!PortalHosts.isAllowed(url.host) || url.scheme != 'https') continue;
       if (!seen.add(url.toString())) continue;
 
-      out.add(_DocumentLink(
+      out.add(DocumentLink(
         url: url,
-        title: text.isEmpty ? _titleFromUrl(url) : text,
-        kind: _kindOf(haystack),
+        title: text.isEmpty ? titleFromUrl(url) : text,
+        kind: kindOf(haystack),
       ));
     }
     return out;
   }
 
-  static String _titleFromUrl(Uri url) {
+  static String titleFromUrl(Uri url) {
     final segments = url.pathSegments.where((s) => s.isNotEmpty);
     return segments.isEmpty ? 'Document' : segments.last;
   }
 
-  static String _kindOf(String haystack) {
+  static String kindOf(String haystack) {
     if (haystack.contains('transcript')) return 'transcript';
     if (haystack.contains('report card')) return 'report card';
     if (haystack.contains('progress')) return 'progress report';
@@ -269,14 +298,36 @@ class DocumentService {
   void dispose() => _client.close();
 }
 
-class _DocumentLink {
+/// A document the app has found a URL for, wherever it was found.
+class DocumentLink {
   final Uri url;
   final String title;
   final String kind;
 
-  const _DocumentLink({
+  const DocumentLink({
     required this.url,
     required this.title,
     required this.kind,
   });
+
+  /// Builds one from what the in-page scan reported, dropping anything that
+  /// points off DOE property.
+  static DocumentLink? from(String url, String title) {
+    final uri = Uri.tryParse(url.trim());
+    if (uri == null || uri.scheme != 'https') return null;
+    if (!PortalHosts.isAllowed(uri.host)) return null;
+    final clean = title.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return DocumentLink(
+      url: uri,
+      title: clean.isEmpty ? DocumentService.titleFromUrl(uri) : clean,
+      kind: DocumentService.kindOf('$url $clean'.toLowerCase()),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is DocumentLink && other.url == url;
+
+  @override
+  int get hashCode => url.hashCode;
 }

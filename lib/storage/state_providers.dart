@@ -345,7 +345,29 @@ class DocumentSyncNotifier
 
   final Ref _ref;
 
+  /// Tries to read the document list straight over HTTP.
+  ///
+  /// Works only when the page is server-rendered. The document site builds its
+  /// list in JavaScript, so this usually finds nothing and the browser screen
+  /// does the real work — but it costs one request and needs no interaction.
   Future<void> run() async {
+    await _perform((service, cookies, store) => service.sync(cookies, store));
+  }
+
+  /// Downloads the documents the in-page scan turned up.
+  Future<void> saveFound(List<DocumentLink> links) async {
+    await _perform(
+      (service, cookies, store) => service.downloadAll(links, cookies, store),
+    );
+  }
+
+  Future<void> _perform(
+    Future<DocumentSyncResult> Function(
+      DocumentService service,
+      Map<String, String> cookies,
+      ArchiveStore store,
+    ) work,
+  ) async {
     if (state.isLoading) return;
     state = const AsyncLoading();
 
@@ -353,8 +375,11 @@ class DocumentSyncNotifier
     final store = _ref.read(archiveStoreProvider);
 
     state = await AsyncValue.guard(() async {
-      final result =
-          await _ref.read(documentServiceProvider).sync(cookies, store);
+      final result = await work(
+        _ref.read(documentServiceProvider),
+        cookies,
+        store,
+      );
 
       // A transcript read out of a PDF is worth keeping even when the portal
       // publishes none — that is the reason for reading it at all.

@@ -248,4 +248,91 @@ void main() {
       expect(PortalHosts.isAllowed('schools.nyc.evil.com'), isFalse);
     });
   });
+
+  group('DocumentLink.from', () {
+    test('keeps DOE links and names them', () {
+      final link = DocumentLink.from(
+        'https://www.nycenet.edu/studentdocument/file/9921',
+        '  Official   Transcript  ',
+      );
+      expect(link, isNotNull);
+      expect(link!.title, 'Official Transcript', reason: 'whitespace collapsed');
+      expect(link.kind, 'transcript');
+    });
+
+    test('falls back to the URL when the element had no text', () {
+      final link = DocumentLink.from(
+        'https://www.nycenet.edu/studentdocument/report.pdf',
+        '',
+      );
+      expect(link!.title, 'report.pdf');
+    });
+
+    test('infers the kind from the link itself', () {
+      expect(
+        DocumentLink.from('https://www.nycenet.edu/a/reportcard.pdf', 'Report Card')!.kind,
+        'report card',
+      );
+      expect(
+        DocumentLink.from('https://www.nycenet.edu/a/x.pdf', 'Progress Report')!.kind,
+        'progress report',
+      );
+      expect(
+        DocumentLink.from('https://www.nycenet.edu/a/x.pdf', 'Something')!.kind,
+        'document',
+      );
+    });
+
+    test('refuses anything off DOE property or not over TLS', () {
+      expect(DocumentLink.from('https://example.com/x.pdf', 'Transcript'), isNull);
+      expect(DocumentLink.from('http://www.nycenet.edu/x.pdf', 'Transcript'), isNull);
+      expect(DocumentLink.from('javascript:void(0)', 'Transcript'), isNull);
+      expect(DocumentLink.from('not a url at all', 'Transcript'), isNull);
+    });
+
+    test('two links to the same file are the same link', () {
+      final a = DocumentLink.from('https://www.nycenet.edu/x.pdf', 'One');
+      final b = DocumentLink.from('https://www.nycenet.edu/x.pdf', 'Two');
+      expect(a, equals(b), reason: 'a rescan must not duplicate what it found');
+    });
+  });
+
+  group('downloadAll', () {
+    test('saves the links the page scan turned up', () async {
+      final links = [
+        DocumentLink.from(
+          'https://www.nycenet.edu/studentdocument/transcript.pdf',
+          'Official Transcript',
+        )!,
+      ];
+      final result = await DocumentService(client: routing())
+          .downloadAll(links, cookies, store);
+
+      expect(result.saved, hasLength(1));
+      expect(result.saved.single.kind, 'transcript');
+      expect(result.transcript, hasLength(1));
+      expect(result.transcript.single.courseTitle, 'Algebra 2 Honors');
+    });
+
+    test('an empty list says nothing was posted', () async {
+      final result = await DocumentService(client: routing())
+          .downloadAll(const [], cookies, store);
+      expect(result.saved, isEmpty);
+      expect(result.failure, contains('No documents'));
+    });
+
+    test('links that are not PDFs suggest tapping one instead', () async {
+      final service = DocumentService(
+        client: MockClient((_) async => http.Response('<html></html>', 200)),
+      );
+      final result = await service.downloadAll(
+        [DocumentLink.from('https://www.nycenet.edu/x.pdf', 'X')!],
+        cookies,
+        store,
+      );
+
+      expect(result.saved, isEmpty);
+      expect(result.failure, contains('tap the one you want'));
+    });
+  });
 }
