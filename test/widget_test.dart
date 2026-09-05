@@ -127,6 +127,7 @@ void main() {
   /// Disposes the tree so no repeating timer outlives the test.
   Future<void> teardown(WidgetTester tester) async {
     await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 100));
   }
 
   group('Grades tab', () {

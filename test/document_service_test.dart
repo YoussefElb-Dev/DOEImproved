@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:doe_improved/services/document_service.dart';
 import 'package:doe_improved/services/native_cookie_bridge.dart';
+import 'package:doe_improved/services/pdf/pdf_text_extractor.dart';
 import 'package:doe_improved/storage/archive_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -18,6 +19,25 @@ List<int> pdf(String content) {
     ...body,
     ...latin1.encode('\nendstream\nendobj\n%%EOF\n'),
   ];
+}
+
+class _NycTranscriptExtractor extends PdfTextExtractor {
+  const _NycTranscriptExtractor();
+
+  @override
+  PdfText extract(List<int> bytes) => const PdfText(
+        reliable: true,
+        text: '''
+NYC Department Of Education
+Student Transcript
+Name / ID :STUDENT, TEST / 000000000
+2025 / Term 2 Actual
+27Q309MRS22QAECC ALGEBRA 2 2 OF 2 92 92 2.00 / 2.00
+Term Avg :92.00% Term : Actual Credits / Credits Earned : 2.00 / 2.00
+Cumulative : Actual Credits / Credits Earned 2.00 / 2.00
+Cumulative Average: 92.00% Cumulative Credits Averaged: 2.00
+''',
+      );
 }
 
 void main() {
@@ -323,13 +343,16 @@ void main() {
           'Official Transcript',
         )!,
       ];
-      final result = await DocumentService(client: routing())
+      final result = await DocumentService(
+        client: routing(),
+        extractor: const _NycTranscriptExtractor(),
+      )
           .downloadAll(links, cookies, store);
 
       expect(result.saved, hasLength(1));
       expect(result.saved.single.kind, 'transcript');
       expect(result.transcript, hasLength(1));
-      expect(result.transcript.single.courseTitle, 'Algebra 2 Honors');
+      expect(result.transcript.single.finalScore, 92);
       expect(result.normalizedTranscripts, hasLength(1));
       expect(result.normalizedTranscripts.single.courseCount, 1);
     });
