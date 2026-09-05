@@ -273,6 +273,24 @@ final transcriptRecordsProvider =
   final transcriptStore = ref.read(transcriptStoreProvider);
   final archiveStore = ref.read(archiveStoreProvider);
   var records = await transcriptStore.list();
+  var repairedIncompleteRecord = false;
+
+  // Repair normalized JSON written by older builds that kept only the first
+  // recognized class. The complete extracted text was retained in that same
+  // record, so this recovery is local and does not require an NVIDIA request.
+  final nimService = ref.read(nimTranscriptServiceProvider);
+  for (final record in records) {
+    if (record.rawText.trim().isEmpty) continue;
+    final recovered = nimService.recoverLocalRows(
+      localDraft: record,
+      rawText: record.rawText,
+    );
+    if (recovered.courseCount <= record.courseCount) continue;
+    await transcriptStore.save(recovered);
+    repairedIncompleteRecord = true;
+  }
+  if (repairedIncompleteRecord) records = await transcriptStore.list();
+
   final importedDocumentIds = records
       .map((record) => record.sourceDocumentId)
       .whereType<String>()
@@ -700,11 +718,15 @@ class TranscriptImportNotifier extends StateNotifier<TranscriptImportUiState> {
   Future<bool> reprocess(NormalizedTranscript transcript) async {
     if (state.busy) return false;
     final preferences = _ref.read(nimPreferencesProvider);
+    final recovered = _ref.read(nimTranscriptServiceProvider).recoverLocalRows(
+          localDraft: transcript,
+          rawText: transcript.rawText,
+        );
     if (!preferences.enabled || !preferences.hasApiKey) {
       state = TranscriptImportUiState(
         stage: TranscriptImportStage.review,
         draft: TranscriptImportDraft(
-          transcript: transcript,
+          transcript: recovered,
           sourceBytes: null,
           logs: const [],
         ),
@@ -713,7 +735,7 @@ class TranscriptImportNotifier extends StateNotifier<TranscriptImportUiState> {
       return false;
     }
     final draft = TranscriptImportDraft(
-      transcript: transcript,
+      transcript: recovered,
       sourceBytes: null,
       logs: const [],
     );

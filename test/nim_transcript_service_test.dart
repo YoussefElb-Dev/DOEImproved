@@ -9,7 +9,7 @@ import 'package:http/testing.dart';
 void main() {
   const fakeKey = 'nvapi-test.not-a-real-credential';
 
-  test('uses NVIDIA chat completions, Kimi K3 and strict JSON output', () async {
+  test('uses only parameters supported by the NVIDIA Kimi K3 endpoint', () async {
     final local = _localTranscript();
     late Map<String, dynamic> requestBody;
     final client = MockClient((request) async {
@@ -43,7 +43,8 @@ void main() {
     expect(requestBody['model'], NimTranscriptService.model);
     expect(requestBody['reasoning_effort'], 'max');
     expect(requestBody['stream'], isFalse);
-    expect((requestBody['response_format'] as Map)['type'], 'json_schema');
+    expect(requestBody.containsKey('response_format'), isFalse);
+    expect(requestBody.containsKey('top_p'), isFalse);
     expect(jsonEncode(requestBody['messages']), contains('current Gradly grade'));
     expect(jsonEncode(requestBody['messages']), contains('12'));
     expect(result.transcript.courseCount, 2);
@@ -51,6 +52,87 @@ void main() {
     expect(result.transcript.extraFields['currentAppGradeLevel'], '12');
     expect(result.transcript.rawText, local.rawText.trim());
     expect(result.promptTokens, 1200);
+    expect(result.usedStructuredOutput, isFalse);
+  });
+
+  test('recovers every locally detectable row from older incomplete JSON', () async {
+    final complete = _localTranscript();
+    final incompleteJson = complete.toJson();
+    final term = Map<String, dynamic>.from(
+      (incompleteJson['terms'] as List<dynamic>).single as Map,
+    );
+    term['courses'] = [(term['courses'] as List<dynamic>).first];
+    incompleteJson['terms'] = [term];
+    final incomplete = NormalizedTranscript.fromJson(incompleteJson);
+    late Map<String, dynamic> requestBody;
+    final service = NimTranscriptService(
+      client: MockClient((request) async {
+        requestBody = jsonDecode(request.body) as Map<String, dynamic>;
+        return http.Response(
+          jsonEncode({
+            'choices': [
+              {
+                'message': {
+                  'content': jsonEncode(_extraction(incomplete)),
+                },
+              },
+            ],
+          }),
+          200,
+        );
+      }),
+    );
+
+    final result = await service.extract(
+      apiKey: fakeKey,
+      localDraft: incomplete,
+      rawText: complete.rawText,
+    );
+
+    expect(result.transcript.courseCount, 2);
+    expect(result.transcript.terms.single.courses.last.title, 'PRECALCULUS');
+    expect(jsonEncode(requestBody['messages']), contains('found 2 distinct'));
+    expect(jsonEncode(requestBody['messages']), contains('PRECALCULUS'));
+    expect(
+      result.transcript.warnings.any((warning) => warning.contains('recovered 1')),
+      isTrue,
+    );
+  });
+
+  test('polls NVIDIA when Kimi K3 returns an asynchronous request id', () async {
+    final local = _localTranscript();
+    var calls = 0;
+    final service = NimTranscriptService(
+      client: MockClient((request) async {
+        calls++;
+        if (request.method == 'POST') {
+          return http.Response(jsonEncode({'requestId': 'request-123'}), 202);
+        }
+        expect(
+          request.url.toString(),
+          'https://integrate.api.nvidia.com/v1/status/request-123',
+        );
+        return http.Response(
+          jsonEncode({
+            'choices': [
+              {
+                'message': {'content': jsonEncode(_extraction(local))},
+              },
+            ],
+          }),
+          200,
+        );
+      }),
+    );
+
+    final result = await service.extract(
+      apiKey: fakeKey,
+      localDraft: local,
+      rawText: local.rawText,
+    );
+
+    expect(calls, 2);
+    expect(result.transcript.courseCount, 2);
   });
 
   test('restores locally detected rows when the model omits one', () async {
@@ -108,6 +190,31 @@ void main() {
               'message',
               allOf(contains('rejected'), isNot(contains(fakeKey))),
             ),
+      ),
+    );
+  });
+
+  test('does not display null for an empty NVIDIA 400 error', () async {
+    final local = _localTranscript();
+    final service = NimTranscriptService(
+      client: MockClient((_) async => http.Response(
+            jsonEncode({'error': null}),
+            400,
+          )),
+    );
+
+    await expectLater(
+      service.extract(
+        apiKey: fakeKey,
+        localDraft: local,
+        rawText: local.rawText,
+      ),
+      throwsA(
+        isA<NimTranscriptException>().having(
+          (error) => error.userMessage,
+          'message',
+          allOf(contains('error 400'), isNot(contains('null'))),
+        ),
       ),
     );
   });

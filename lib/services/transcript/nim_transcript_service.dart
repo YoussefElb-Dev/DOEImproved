@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import '../../models/normalized_transcript.dart';
+import 'normalized_transcript_parser.dart';
 
 class NimTranscriptException implements Exception {
   const NimTranscriptException(this.userMessage, {this.statusCode, this.cause});
@@ -73,31 +74,25 @@ class NimTranscriptService {
       );
     }
 
+    // Older Gradly builds could save an incomplete normalized record while
+    // still retaining the complete extracted PDF text. Rebuild the local
+    // baseline before asking Kimi so those rows cannot be silently lost.
+    final baseline = recoverLocalRows(
+      localDraft: localDraft,
+      rawText: source,
+    );
+
     http.Response response;
-    var structured = true;
     try {
       response = await _post(
         apiKey: key,
         payload: _payload(
           source: source,
+          baseline: baseline,
           currentGradeLevel: currentGradeLevel,
-          structured: true,
         ),
       );
-      // Some hosted profiles advertise structured output but reject a schema
-      // extension. Retry once with the same schema in the prompt so imports do
-      // not fail solely because that optional transport feature is unavailable.
-      if (response.statusCode == 400 && _structuredOutputRejected(response.body)) {
-        structured = false;
-        response = await _post(
-          apiKey: key,
-          payload: _payload(
-            source: source,
-            currentGradeLevel: currentGradeLevel,
-            structured: false,
-          ),
-        );
-      }
+      response = await _pollIfPending(response, apiKey: key);
     } on TimeoutException catch (error) {
       throw NimTranscriptException(
         'Kimi K3 took longer than ${timeout.inMinutes} minutes to respond. '
@@ -148,15 +143,15 @@ class NimTranscriptService {
           : root;
       final merged = _mergeWithLocal(
         extraction,
-        localDraft,
+        baseline,
         currentGradeLevel: currentGradeLevel,
       );
       final transcript = NormalizedTranscript.fromJson(merged);
-      _validate(transcript, minimumCourseCount: localDraft.courseCount);
+      _validate(transcript, minimumCourseCount: baseline.courseCount);
       final usage = envelope['usage'] is Map ? envelope['usage'] as Map : const {};
       return NimTranscriptResult(
         transcript: transcript,
-        usedStructuredOutput: structured,
+        usedStructuredOutput: false,
         promptTokens: (usage['prompt_tokens'] as num?)?.toInt(),
         completionTokens: (usage['completion_tokens'] as num?)?.toInt(),
       );
@@ -188,12 +183,77 @@ class NimTranscriptService {
         .timeout(timeout);
   }
 
+  /// Rebuilds locally detectable rows from the retained text. This is public
+  /// so the review screen can still recover an older incomplete record when
+  /// NVIDIA is unavailable.
+  NormalizedTranscript recoverLocalRows({
+    required NormalizedTranscript localDraft,
+    required String rawText,
+  }) =>
+      _baselineFromRawText(localDraft, rawText.trim());
+
+  Future<http.Response> _pollIfPending(
+    http.Response initial, {
+    required String apiKey,
+  }) async {
+    if (initial.statusCode != 202) return initial;
+    final requestId = _requestId(initial);
+    if (requestId == null) {
+      throw const NimTranscriptException(
+        'NVIDIA accepted the transcript but did not return a request ID.',
+        statusCode: 202,
+      );
+    }
+
+    final deadline = DateTime.now().add(timeout);
+    var response = initial;
+    while (response.statusCode == 202) {
+      final remaining = deadline.difference(DateTime.now());
+      if (remaining <= Duration.zero) {
+        throw NimTranscriptException(
+          'Kimi K3 took longer than ${timeout.inMinutes} minutes to respond. '
+          'The local transcript result is still available.',
+          statusCode: 202,
+        );
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+      response = await _client.get(
+        endpoint.resolve('/v1/status/${Uri.encodeComponent(requestId)}'),
+        headers: {
+          'Authorization': 'Bearer $apiKey',
+          'Accept': 'application/json',
+        },
+      ).timeout(remaining);
+    }
+    return response;
+  }
+
+  static String? _requestId(http.Response response) {
+    try {
+      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      if (decoded is Map) {
+        for (final key in const ['requestId', 'request_id', 'id']) {
+          final value = '${decoded[key] ?? ''}'.trim();
+          if (RegExp(r'^[A-Za-z0-9-]{1,64}$').hasMatch(value)) return value;
+        }
+      }
+    } catch (_) {}
+    for (final key in const ['x-request-id', 'request-id']) {
+      final value = response.headers[key]?.trim();
+      if (value != null && RegExp(r'^[A-Za-z0-9-]{1,64}$').hasMatch(value)) {
+        return value;
+      }
+    }
+    return null;
+  }
+
   Map<String, dynamic> _payload({
     required String source,
+    required NormalizedTranscript baseline,
     required String? currentGradeLevel,
-    required bool structured,
   }) {
     final schema = _transcriptSchema;
+    final courseManifest = _courseManifest(baseline);
     final gradeContext = currentGradeLevel == null || currentGradeLevel.trim().isEmpty
         ? 'not set'
         : currentGradeLevel.trim();
@@ -223,6 +283,16 @@ NYC DOE rules for this extraction:
 - Keep both the numeric mark and printed letter/pass mark. Do not expand a truncated title by guessing.
 - Copy the exact source course line into rawLine so no row is lost.
 
+Gradly's on-device parser found ${baseline.courseCount} distinct course rows in
+the retained text. Return every candidate row below exactly once, grouped under
+its printed term. Correct a candidate field when the source text proves it is
+wrong, but never omit the row. Also add any valid source rows the local parser
+missed. A result with fewer than ${baseline.courseCount} courses is invalid.
+
+<required_course_rows>
+${jsonEncode(courseManifest)}
+</required_course_rows>
+
 Return only JSON matching this schema:
 ${jsonEncode(schema)}
 
@@ -234,21 +304,67 @@ $source
       'max_tokens': 16384,
       'seed': 0,
       'temperature': 1,
-      'top_p': 1,
       'reasoning_effort': 'max',
       'stream': false,
     };
-    if (structured) {
-      payload['response_format'] = {
-        'type': 'json_schema',
-        'json_schema': {
-          'name': 'gradly_transcript',
-          'strict': true,
-          'schema': schema,
-        },
-      };
-    }
     return payload;
+  }
+
+  static List<Map<String, dynamic>> _courseManifest(
+    NormalizedTranscript transcript,
+  ) => [
+        for (final term in transcript.terms)
+          for (final course in term.courses)
+            {
+              'term': term.label,
+              'year': term.year,
+              'subjectCode': course.subjectCode,
+              'courseNumber': course.courseNumber,
+              'title': course.title,
+              'numericGrade': course.numericGrade,
+              'letterGrade': course.letterGrade,
+              'creditsAttempted': course.creditsAttempted,
+              'creditsEarned': course.creditsEarned,
+              'rawLine': course.rawLine,
+            },
+      ];
+
+  static NormalizedTranscript _baselineFromRawText(
+    NormalizedTranscript saved,
+    String source,
+  ) {
+    final reparsed = const NormalizedTranscriptParser().parse(
+      rawText: source,
+      sourceFileName: saved.sourceFileName,
+      sourceDocumentId: saved.sourceDocumentId,
+      sourceFingerprint: saved.sourceFingerprint,
+      importedAt: saved.importedAt,
+    ).transcript;
+    if (reparsed.courseCount <= saved.courseCount) return saved;
+
+    final savedJson = saved.toJson();
+    final reparsedJson = reparsed.toJson();
+    final recovered = reparsed.courseCount - saved.courseCount;
+    final merged = _fillMissing(savedJson, reparsedJson);
+    merged
+      ..['schemaVersion'] = currentTranscriptSchemaVersion
+      ..['id'] = saved.id
+      ..['sourceFingerprint'] = saved.sourceFingerprint
+      ..['sourceFileName'] = saved.sourceFileName
+      ..['sourceDocumentId'] = saved.sourceDocumentId
+      ..['importedAt'] = saved.importedAt.toIso8601String()
+      ..['rawText'] = saved.rawText
+      ..['terms'] = _mergeTerms(
+        _mapList(savedJson['terms']),
+        _mapList(reparsedJson['terms']),
+      )
+      ..['warnings'] = <String>{
+        ..._stringList(savedJson['warnings']),
+        ..._stringList(reparsedJson['warnings']),
+        'Gradly recovered $recovered course ${recovered == 1 ? 'row' : 'rows'} '
+            'from the retained transcript text before Kimi review.',
+      }.toList();
+    return NormalizedTranscript.fromJson(merged);
   }
 
   static String _messageText(Object? content) {
@@ -521,23 +637,42 @@ $source
       final decoded = jsonDecode(response.body);
       if (decoded is Map) {
         final error = decoded['error'];
-        detail = error is Map ? '${error['message'] ?? ''}' : '$error';
+        if (error is Map) {
+          detail = _firstNonEmpty([
+            error['message'],
+            error['detail'],
+            error['type'],
+            error['code'],
+          ]);
+        } else if (error != null) {
+          detail = '$error'.trim();
+        }
+        if (detail.isEmpty) {
+          detail = _firstNonEmpty([
+            decoded['message'],
+            decoded['detail'],
+            decoded['title'],
+          ]);
+        }
       }
     } catch (_) {}
+    if (detail.toLowerCase() == 'null') detail = '';
     detail = detail.replaceAll(RegExp(r'nvapi-[A-Za-z0-9_-]+'), '[redacted]');
     if (detail.length > 180) detail = '${detail.substring(0, 180)}…';
     return NimTranscriptException(
       'NVIDIA could not process the transcript (error $status)'
-      '${detail.trim().isEmpty ? '.' : ': ${detail.trim()}'}',
+      '${detail.trim().isEmpty ? '. Try again; if it continues, update Gradly '
+          'or replace the NVIDIA key in Settings.' : ': ${detail.trim()}'}',
       statusCode: status,
     );
   }
 
-  static bool _structuredOutputRejected(String body) {
-    final lower = body.toLowerCase();
-    return lower.contains('response_format') ||
-        lower.contains('json_schema') ||
-        lower.contains('structured');
+  static String _firstNonEmpty(Iterable<Object?> values) {
+    for (final value in values) {
+      final text = value == null ? '' : '$value'.trim();
+      if (text.isNotEmpty && text.toLowerCase() != 'null') return text;
+    }
+    return '';
   }
 
   static String _safeError(Object error) {
