@@ -1,5 +1,6 @@
 import 'package:doe_improved/core/theme/app_palette.dart';
 import 'package:doe_improved/models/grade_models.dart';
+import 'package:doe_improved/models/normalized_transcript.dart';
 import 'package:doe_improved/models/portal_snapshot.dart';
 import 'package:doe_improved/models/schedule_models.dart';
 import 'package:doe_improved/storage/state_providers.dart';
@@ -135,11 +136,14 @@ void main() {
       expect(find.text('Gradly'), findsOneWidget);
       expect(find.text('LIVE'), findsOneWidget);
       expect(find.text('Semester Overview'), findsOneWidget);
-      expect(find.text('ALL CLASSES'), findsOneWidget);
+      expect(find.text('CURRENT CLASSES'), findsOneWidget);
+      expect(find.text('TAKEN CLASSES'), findsOneWidget);
       // Named twice: once as a course card, once as the top performer.
       expect(find.text('AP Calculus BC'), findsWidgets);
       expect(find.text('AP Physics C'), findsOneWidget);
       expect(find.text('Current GPA'), findsOneWidget);
+      expect(find.text('Geometry Honors'), findsOneWidget);
+      expect(find.text('95 · A'), findsOneWidget);
 
       await teardown(tester);
     });
@@ -152,6 +156,63 @@ void main() {
       );
 
       expect(find.text('No courses yet'), findsOneWidget);
+
+      await teardown(tester);
+    });
+
+    testWidgets('uses imported courses and official cumulative totals',
+        (tester) async {
+      useTallViewport(tester);
+      final imported = NormalizedTranscript(
+        id: 'imported',
+        sourceFingerprint: 'fingerprint',
+        sourceFileName: 'Transcript.pdf',
+        importedAt: DateTime(2026, 7, 17),
+        rawText: 'saved transcript',
+        student: const TranscriptStudent(studentId: 'student-1'),
+        institution:
+            const TranscriptInstitution(name: 'NYC Public Schools'),
+        terms: const [
+          NormalizedTerm(
+            id: '2025-2',
+            label: '2025 Term 2',
+            courses: [
+              NormalizedCourse(
+                id: 'mat42',
+                subjectCode: 'MAT',
+                courseNumber: '42',
+                title: 'Algebra 2',
+                creditsAttempted: 2,
+                creditsEarned: 2,
+                numericGrade: 97,
+              ),
+            ],
+          ),
+        ],
+        cumulative: const CumulativeSummary(
+          creditsEarned: 41.82,
+          cumulativeAveragePercent: 95.29,
+        ),
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            portalProvider.overrideWith(() => _FakePortalController(baseline)),
+            transcriptRecordsProvider.overrideWith((_) async => [imported]),
+          ],
+          child: MaterialApp(
+            theme: testTheme,
+            home: const Scaffold(body: GradesTab()),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 900));
+
+      expect(find.text('Algebra 2'), findsOneWidget);
+      expect(find.text('97'), findsOneWidget);
+      expect(find.text('95.29%'), findsOneWidget);
+      expect(find.text('41.82'), findsOneWidget);
 
       await teardown(tester);
     });

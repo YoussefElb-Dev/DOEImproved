@@ -5,17 +5,20 @@ import 'package:html/parser.dart' as html_parser;
 import 'package:http/http.dart' as http;
 
 import '../models/archive_models.dart';
+import '../models/normalized_transcript.dart';
 import '../models/schedule_models.dart';
 import '../storage/archive_store.dart';
 import 'grade_data_service.dart';
 import 'native_cookie_bridge.dart';
 import 'pdf/pdf_text_extractor.dart';
 import 'pdf/transcript_text_parser.dart';
+import 'transcript/normalized_transcript_parser.dart';
 
 /// What one document sync produced.
 class DocumentSyncResult {
   final List<SavedDocument> saved;
   final List<TranscriptRecord> transcript;
+  final List<NormalizedTranscript> normalizedTranscripts;
   final String? failure;
 
   /// The DOE document site wants its own sign-in.
@@ -28,6 +31,7 @@ class DocumentSyncResult {
   const DocumentSyncResult({
     this.saved = const [],
     this.transcript = const [],
+    this.normalizedTranscripts = const [],
     this.failure,
     this.needsSignIn = false,
   });
@@ -58,14 +62,18 @@ class DocumentService {
   final http.Client _client;
   final PdfTextExtractor _extractor;
   final TranscriptTextParser _transcriptParser;
+  final NormalizedTranscriptParser _normalizedTranscriptParser;
 
   DocumentService({
     http.Client? client,
     PdfTextExtractor? extractor,
     TranscriptTextParser? transcriptParser,
+    NormalizedTranscriptParser? normalizedTranscriptParser,
   })  : _client = client ?? http.Client(),
         _extractor = extractor ?? const PdfTextExtractor(),
-        _transcriptParser = transcriptParser ?? const TranscriptTextParser();
+        _transcriptParser = transcriptParser ?? const TranscriptTextParser(),
+        _normalizedTranscriptParser =
+            normalizedTranscriptParser ?? const NormalizedTranscriptParser();
 
   Map<String, String> _headers(Map<String, String> cookies, String host) => {
         'Cookie': NativeCookieBridge.toHeader(cookies, host: host),
@@ -139,6 +147,7 @@ class DocumentService {
 
     final saved = <SavedDocument>[];
     final transcript = <TranscriptRecord>[];
+    final normalizedTranscripts = <NormalizedTranscript>[];
     var rejected = 0;
     final failures = <String>[];
 
@@ -175,6 +184,15 @@ class DocumentService {
 
         if (text.reliable && link.kind == 'transcript') {
           transcript.addAll(_transcriptParser.parse(text.lines));
+          final parsed = _normalizedTranscriptParser.parse(
+            rawText: text.text,
+            sourceFileName: link.title,
+            sourceDocumentId: document?.id,
+            importedAt: document?.savedAt,
+          );
+          if (parsed.canSave) {
+            normalizedTranscripts.add(parsed.transcript);
+          }
         }
       } catch (error) {
         rejected++;
@@ -194,6 +212,7 @@ class DocumentService {
     return DocumentSyncResult(
       saved: saved,
       transcript: _deduplicate(transcript),
+      normalizedTranscripts: normalizedTranscripts,
     );
   }
 

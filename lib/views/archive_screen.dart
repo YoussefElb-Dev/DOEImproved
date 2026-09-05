@@ -246,6 +246,11 @@ class _DownloadCard extends ConsumerWidget {
               '${result.saved.length == 1 ? 'document' : 'documents'}',
           if (result.transcript.isNotEmpty)
             'read ${result.transcript.length} transcript rows',
+          if (result.normalizedTranscripts.isNotEmpty)
+            'added ${result.normalizedTranscripts.fold<int>(
+              0,
+              (sum, record) => sum + record.courseCount,
+            )} taken classes to Grades',
         ];
         message = '${parts.join(' and ')}.';
         messageColour = p.gradeA;

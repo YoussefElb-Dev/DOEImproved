@@ -49,6 +49,10 @@ projections on top.
   PDF and extracted text; deduplicates re-imports; merges multiple institutions
   into one view; audits GPA; and exports JSON or CSV. See
   [the transcript import notes](docs/transcript-import.md).
+- **Taken classes on Grades** — downloaded and manually imported transcripts
+  feed the main Grades and Analytics tabs, using printed cumulative credits and
+  averages and showing every completed course, score, credit value, and term.
+  Existing downloaded PDFs are migrated automatically from their saved text.
 
 ## How the parser adapts
 

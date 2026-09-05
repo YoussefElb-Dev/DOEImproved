@@ -330,6 +330,8 @@ void main() {
       expect(result.saved.single.kind, 'transcript');
       expect(result.transcript, hasLength(1));
       expect(result.transcript.single.courseTitle, 'Algebra 2 Honors');
+      expect(result.normalizedTranscripts, hasLength(1));
+      expect(result.normalizedTranscripts.single.courseCount, 1);
     });
 
     test('an empty list says nothing was posted', () async {

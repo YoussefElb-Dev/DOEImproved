@@ -51,6 +51,13 @@ combined transcript view. The normalized record keeps the raw extracted text,
 and the original PDF is retained beside it for later re-parsing. JSON and CSV
 exports are generated from the reviewed record.
 
+Saved records feed the Grades and Analytics tabs through one academic-history
+provider. The Grades overview prefers the transcript's printed cumulative
+credits and average, while Taken Classes shows every normalized course grouped
+by term. On upgrade, Gradly also normalizes the extracted text beside an
+already-downloaded DOE transcript, so the student does not need to fetch it
+again.
+
 ## GPA rules
 
 The GPA audit uses printed quality points first, then printed course grade

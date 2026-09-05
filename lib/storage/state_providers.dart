@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/theme/app_palette.dart';
+import '../models/academic_history.dart';
 import '../models/archive_models.dart';
 import '../models/grade_models.dart';
 import '../models/portal_snapshot.dart';
@@ -15,6 +16,7 @@ import '../services/document_service.dart';
 import '../services/calculator_service.dart';
 import '../services/grade_data_service.dart';
 import '../services/portal_repository.dart';
+import '../services/transcript/normalized_transcript_parser.dart';
 import '../services/transcript/transcript_analytics.dart';
 import '../services/transcript/transcript_import_service.dart';
 import 'archive_store.dart';
@@ -202,9 +204,79 @@ final scheduleProvider = Provider<DaySchedule?>(
   (ref) => ref.watch(_snapshot.select((s) => s?.schedule)),
 );
 
-final transcriptProvider = Provider<List<TranscriptRecord>>(
+/// Reviewed, versioned transcript files stored privately on the device.
+final transcriptRecordsProvider =
+    FutureProvider<List<NormalizedTranscript>>((ref) async {
+  final transcriptStore = ref.read(transcriptStoreProvider);
+  final archiveStore = ref.read(archiveStoreProvider);
+  var records = await transcriptStore.list();
+  final importedDocumentIds = records
+      .map((record) => record.sourceDocumentId)
+      .whereType<String>()
+      .toSet();
+  var importedExistingDocument = false;
+
+  // Upgrade path for PDFs downloaded by an older Gradly build. Their raw text
+  // is already on the phone, so parse it into the normalized library once and
+  // make it useful without asking the student to download it again.
+  for (final document in await archiveStore.listDocuments()) {
+    if (document.kind != 'transcript' ||
+        importedDocumentIds.contains(document.id)) {
+      continue;
+    }
+    final rawText = await archiveStore.readDocumentText(document.id);
+    if (rawText == null) continue;
+    final parsed = const NormalizedTranscriptParser().parse(
+      rawText: rawText,
+      sourceFileName: document.title,
+      sourceDocumentId: document.id,
+      importedAt: document.savedAt,
+    );
+    if (!parsed.canSave) {
+      debugPrint(
+        'Saved transcript ${document.id} could not be normalized: '
+        '${parsed.validationErrors.join('; ')}',
+      );
+      continue;
+    }
+    await transcriptStore.save(parsed.transcript);
+    importedDocumentIds.add(document.id);
+    importedExistingDocument = true;
+  }
+
+  if (importedExistingDocument) records = await transcriptStore.list();
+  return records;
+});
+
+final _portalTranscriptProvider = Provider<List<TranscriptRecord>>(
   (ref) => ref.watch(_snapshot.select((s) => s?.transcript)) ?? const [],
 );
+
+/// One durable academic history made from saved PDFs, manual imports, and the
+/// older portal transcript feed. Normalized PDF data wins when both contain
+/// the same class because it carries official cumulative totals and flags.
+final academicHistoryProvider = Provider<AsyncValue<AcademicHistory>>((ref) {
+  final saved = ref.watch(transcriptRecordsProvider);
+  final portalRows = ref.watch(_portalTranscriptProvider);
+  return saved.when(
+    data: (records) => AsyncData(
+      AcademicHistory.combine(normalized: records, legacy: portalRows),
+    ),
+    loading: () => portalRows.isEmpty
+        ? const AsyncLoading()
+        : AsyncData(AcademicHistory.combine(legacy: portalRows)),
+    error: (error, stackTrace) => portalRows.isEmpty
+        ? AsyncError(error, stackTrace)
+        : AsyncData(AcademicHistory.combine(legacy: portalRows)),
+  );
+});
+
+/// The effective transcript also drives analytics, so imported history is
+/// reflected throughout the app instead of living only in its library.
+final transcriptProvider = Provider<List<TranscriptRecord>>((ref) {
+  final history = ref.watch(academicHistoryProvider).valueOrNull;
+  return history?.transcriptRecords ?? ref.watch(_portalTranscriptProvider);
+});
 
 /// Outstanding work, soonest first — what the grades feed and calendar show.
 final workItemsProvider = Provider<List<WorkItem>>(
@@ -408,6 +480,13 @@ class DocumentSyncNotifier
           );
         }
       }
+      if (result.normalizedTranscripts.isNotEmpty) {
+        final transcriptStore = _ref.read(transcriptStoreProvider);
+        for (final transcript in result.normalizedTranscripts) {
+          await transcriptStore.save(transcript);
+        }
+        _ref.invalidate(transcriptRecordsProvider);
+      }
       return result;
     });
 
@@ -416,12 +495,6 @@ class DocumentSyncNotifier
 }
 
 // ─────────────────────────── lifecycle ───────────────────────────
-
-/// Reviewed, versioned transcript files stored privately on the device.
-final transcriptRecordsProvider =
-    FutureProvider<List<NormalizedTranscript>>((ref) async {
-  return ref.read(transcriptStoreProvider).list();
-});
 
 class TranscriptImportUiState {
   const TranscriptImportUiState({
