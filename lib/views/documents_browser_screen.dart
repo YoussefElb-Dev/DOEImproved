@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -40,11 +41,13 @@ class DocumentsBrowserScreen extends StatefulWidget {
 class _DocumentsBrowserScreenState extends State<DocumentsBrowserScreen> {
   late final WebViewController _controller;
   final List<DocumentLink> _found = [];
+  final Map<String, _PdfAssembly> _assemblies = {};
 
   bool _busy = true;
   bool _onLoginPage = false;
   String? _error;
   Map<String, String> _cookies = const {};
+  Uri _currentPage = Uri.parse(DocumentService.documentsUrl);
 
   /// Finds anything on the rendered page that leads to a document.
   ///
@@ -63,8 +66,7 @@ class _DocumentsBrowserScreenState extends State<DocumentsBrowserScreen> {
     out.push({ url: url, title: (title || '').replace(/\s+/g, ' ').trim().slice(0, 120) });
   }
   function interesting(text) {
-    return /\.pdf(\?|#|$)/i.test(text) ||
-           /transcript|report\s*card|progress\s*report|document|download/i.test(text);
+    return /\.pdf(\?|#|$)/i.test(text) || /download/i.test(text);
   }
 
   document.querySelectorAll('a[href]').forEach(function (a) {
@@ -96,12 +98,169 @@ class _DocumentsBrowserScreenState extends State<DocumentsBrowserScreen> {
 })();
 ''';
 
+  /// Captures the response body while it is still inside the authenticated
+  /// WebView. This covers target=_blank links, generated blob URLs, fetch/XHR
+  /// downloads, and endpoints whose URL does not end in .pdf.
+  static const String _captureScript = r'''
+(function () {
+  if (window.__gradlyPdfCaptureInstalled) return;
+  window.__gradlyPdfCaptureInstalled = true;
+  var originalFetch = window.fetch.bind(window);
+  var sent = {};
+
+  function post(value) {
+    try { GradlyDocuments.postMessage(JSON.stringify(value)); } catch (_) {}
+  }
+  function pdfSignature(bytes) {
+    return bytes.length > 4 && bytes[0] === 37 && bytes[1] === 80 &&
+           bytes[2] === 68 && bytes[3] === 70;
+  }
+  function sendBytes(bytes, title, url) {
+    var id = String(Date.now()) + '-' + Math.random().toString(36).slice(2);
+    var key = String(url || '') + ':' + bytes.length;
+    if (sent[key]) return;
+    sent[key] = true;
+    var size = 24576;
+    var count = Math.ceil(bytes.length / size);
+    post({type:'start', id:id, title:title || 'DOE document.pdf',
+          url:String(url || location.href), count:count, bytes:bytes.length});
+    for (var i = 0; i < count; i++) {
+      var slice = bytes.subarray(i * size, Math.min(bytes.length, (i + 1) * size));
+      var binary = '';
+      for (var j = 0; j < slice.length; j += 8192) {
+        binary += String.fromCharCode.apply(null, slice.subarray(j, j + 8192));
+      }
+      post({type:'chunk', id:id, index:i, data:btoa(binary)});
+    }
+    post({type:'end', id:id});
+  }
+  function captureUrl(url, title, navigateWhenHtml) {
+    if (!url) return;
+    var absolute;
+    try { absolute = new URL(url, document.baseURI).href; } catch (_) { return; }
+    originalFetch(absolute, {credentials:'include', redirect:'follow'})
+      .then(function (response) { return response.arrayBuffer(); })
+      .then(function (buffer) {
+        var bytes = new Uint8Array(buffer);
+        if (pdfSignature(bytes)) sendBytes(bytes, title, absolute);
+        else if (navigateWhenHtml) location.href = absolute;
+      })
+      .catch(function () { if (navigateWhenHtml) location.href = absolute; });
+  }
+  function captureForm(form, title, fallback) {
+    var method = String(form.method || 'GET').toUpperCase();
+    var action = form.action || location.href;
+    var options = {credentials:'include', redirect:'follow', method:method};
+    if (method === 'GET') {
+      var query = new URLSearchParams(new FormData(form)).toString();
+      action += (action.indexOf('?') >= 0 ? '&' : '?') + query;
+    } else {
+      options.body = new FormData(form);
+    }
+    originalFetch(action, options)
+      .then(function (response) { return response.arrayBuffer(); })
+      .then(function (buffer) {
+        var bytes = new Uint8Array(buffer);
+        if (pdfSignature(bytes)) sendBytes(bytes, title, action);
+        else if (fallback) fallback();
+      })
+      .catch(function () { if (fallback) fallback(); });
+  }
+
+  document.addEventListener('click', function (event) {
+    var element = event.target && event.target.closest
+      ? event.target.closest('a[href],button,[role=button]') : null;
+    if (!element) return;
+    var rawHref = element.getAttribute('href') || '';
+    var href = element.href || element.getAttribute('data-url') ||
+               element.getAttribute('data-href') || element.getAttribute('data-file');
+    var title = (element.textContent || element.getAttribute('aria-label') || '').trim();
+    var documentish = /\.pdf(\?|#|$)|download/i.test(href || '') ||
+      /transcript|report\s*card|progress\s*report|schedule|program\s*card/i.test(title);
+    if (documentish) window.__gradlyLastDocumentTitle = title;
+    // DOE's visible document links all point to "#". Their onclick handlers
+    // fill and submit frmLinks, so those handlers must be allowed to run.
+    if (rawHref === '#' || /^javascript:/i.test(rawHref) || !href) return;
+    if (!documentish && element.target !== '_blank') return;
+    event.preventDefault();
+    event.stopPropagation();
+    captureUrl(href, title, true);
+  }, true);
+
+  var originalOpen = window.open;
+  window.open = function (url) {
+    if (url) captureUrl(url, window.__gradlyLastDocumentTitle || document.title, true);
+    return null;
+  };
+
+  var originalSubmit = HTMLFormElement.prototype.submit;
+  HTMLFormElement.prototype.submit = function () {
+    var form = this;
+    captureForm(
+      form,
+      window.__gradlyLastDocumentTitle || document.title,
+      function () { originalSubmit.call(form); }
+    );
+  };
+  document.addEventListener('submit', function (event) {
+    var form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    event.preventDefault();
+    captureForm(
+      form,
+      window.__gradlyLastDocumentTitle || document.title,
+      function () { originalSubmit.call(form); }
+    );
+  }, true);
+
+  window.fetch = function () {
+    return originalFetch.apply(window, arguments).then(function (response) {
+      try {
+        var type = response.headers.get('content-type') || '';
+        var disposition = response.headers.get('content-disposition') || '';
+        if (/pdf/i.test(type + ' ' + disposition)) {
+          response.clone().arrayBuffer().then(function (buffer) {
+            var bytes = new Uint8Array(buffer);
+            if (pdfSignature(bytes)) sendBytes(bytes, document.title, response.url);
+          });
+        }
+      } catch (_) {}
+      return response;
+    });
+  };
+
+  var originalOpenXhr = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (method, url) {
+    this.__gradlyUrl = url;
+    this.addEventListener('load', function () {
+      try {
+        var type = this.getResponseHeader('content-type') || '';
+        var disposition = this.getResponseHeader('content-disposition') || '';
+        if (!/pdf/i.test(type + ' ' + disposition)) return;
+        if (this.response instanceof ArrayBuffer) {
+          sendBytes(new Uint8Array(this.response), document.title, this.responseURL || this.__gradlyUrl);
+        } else if (this.response instanceof Blob) {
+          this.response.arrayBuffer().then(function (buffer) {
+            sendBytes(new Uint8Array(buffer), document.title, this.responseURL || this.__gradlyUrl);
+          }.bind(this));
+        }
+      } catch (_) {}
+    });
+    return originalOpenXhr.apply(this, arguments);
+  };
+})();
+''';
+
   @override
   void initState() {
     super.initState();
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFF0C0D10))
+      ..addJavaScriptChannel(
+        'GradlyDocuments',
+        onMessageReceived: _onDocumentMessage,
+      )
       ..setNavigationDelegate(
         NavigationDelegate(
           onNavigationRequest: _onNavigation,
@@ -158,6 +317,7 @@ class _DocumentsBrowserScreenState extends State<DocumentsBrowserScreen> {
   Future<void> _afterLoad(String url) async {
     final uri = Uri.tryParse(url);
     if (uri == null || !PortalHosts.isAllowed(uri.host)) return;
+    _currentPage = uri;
 
     final onLogin = await _pageHasPasswordField();
     if (mounted) setState(() => _onLoginPage = onLogin);
@@ -168,7 +328,60 @@ class _DocumentsBrowserScreenState extends State<DocumentsBrowserScreen> {
         await AuthWebViewService.captureCookiesFor(PortalHosts.documents);
     if (cookies.isNotEmpty) _cookies = {..._cookies, ...cookies};
 
+    await _installCapture();
     await _discover();
+  }
+
+  Future<void> _installCapture() async {
+    try {
+      await _controller.runJavaScript(_captureScript);
+    } catch (error) {
+      if (mounted) setState(() => _error = 'Could not enable PDF capture: $error');
+    }
+  }
+
+  void _onDocumentMessage(JavaScriptMessage message) {
+    try {
+      final data = jsonDecode(message.message) as Map<String, dynamic>;
+      final id = '${data['id'] ?? ''}';
+      if (id.isEmpty) return;
+      switch ('${data['type'] ?? ''}') {
+        case 'start':
+          final expectedBytes = (data['bytes'] as num?)?.toInt() ?? 0;
+          if (expectedBytes <= 0 || expectedBytes > DocumentService.maxDocumentBytes) {
+            setState(() => _error = 'The selected PDF is too large to save.');
+            return;
+          }
+          _assemblies[id] = _PdfAssembly(
+            title: '${data['title'] ?? 'DOE document.pdf'}',
+            sourceUrl: Uri.tryParse('${data['url'] ?? ''}') ?? _currentPage,
+            chunkCount: (data['count'] as num?)?.toInt() ?? 0,
+            expectedBytes: expectedBytes,
+          );
+        case 'chunk':
+          final assembly = _assemblies[id];
+          final index = (data['index'] as num?)?.toInt();
+          if (assembly == null || index == null) return;
+          assembly.chunks[index] = base64Decode('${data['data'] ?? ''}');
+        case 'end':
+          final assembly = _assemblies.remove(id);
+          if (assembly == null || !assembly.complete) return;
+          final bytes = assembly.join();
+          if (bytes.length != assembly.expectedBytes) {
+            setState(() => _error = 'The PDF transfer was incomplete. Tap it again.');
+            return;
+          }
+          final link = DocumentLink.captured(
+            sourceUrl: assembly.sourceUrl,
+            title: assembly.title,
+            bytes: bytes,
+            captureId: id,
+          );
+          if (_record([link]) > 0) _toast('Captured ${link.title}');
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = 'Could not read the selected PDF: $error');
+    }
   }
 
   Future<bool> _pageHasPasswordField() async {
@@ -321,5 +534,31 @@ class _DocumentsBrowserScreenState extends State<DocumentsBrowserScreen> {
               ),
             ),
     );
+  }
+}
+
+class _PdfAssembly {
+  _PdfAssembly({
+    required this.title,
+    required this.sourceUrl,
+    required this.chunkCount,
+    required this.expectedBytes,
+  });
+
+  final String title;
+  final Uri sourceUrl;
+  final int chunkCount;
+  final int expectedBytes;
+  final Map<int, Uint8List> chunks = {};
+
+  bool get complete => chunkCount > 0 && chunks.length == chunkCount;
+
+  Uint8List join() {
+    final builder = BytesBuilder(copy: false);
+    for (var i = 0; i < chunkCount; i++) {
+      final chunk = chunks[i];
+      if (chunk != null) builder.add(chunk);
+    }
+    return builder.takeBytes();
   }
 }

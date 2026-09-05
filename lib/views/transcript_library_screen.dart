@@ -220,7 +220,9 @@ class _TranscriptCard extends ConsumerWidget {
           ),
           const SizedBox(width: 8),
           Text(
-            audit.computed?.toStringAsFixed(2) ?? '—',
+            record.cumulative.cumulativeAveragePercent == null
+                ? audit.computed?.toStringAsFixed(2) ?? '—'
+                : '${record.cumulative.cumulativeAveragePercent!.toStringAsFixed(2)}%',
             style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w800),
           ),
           Icon(Icons.chevron_right_rounded, color: p.textTertiary),
@@ -260,7 +262,10 @@ class _TranscriptDetailScreenState
     final tt = Theme.of(context).textTheme;
     final analytics = ref.watch(transcriptAnalyticsProvider);
     final audit = analytics.audit(record);
-    final conversions = analytics.convert(audit.computed ?? audit.stated);
+    final printedAverage = record.cumulative.cumulativeAveragePercent;
+    final conversions = printedAverage == null
+        ? analytics.convert(audit.computed ?? audit.stated)
+        : analytics.convertPercentage(printedAverage);
     final terms = analytics.termMetrics(record);
     final subjects = analytics.creditsBySubject(record);
     final distribution = analytics.gradeDistribution(record);
@@ -301,10 +306,17 @@ class _TranscriptDetailScreenState
                   audit.mismatched ? p.warning : p.accent.withValues(alpha: .3),
               child: Column(
                 children: [
-                  Text('CUMULATIVE GPA', style: tt.labelSmall),
+                  Text(
+                    printedAverage == null
+                        ? 'CUMULATIVE GPA'
+                        : 'OFFICIAL CUMULATIVE AVERAGE',
+                    style: tt.labelSmall,
+                  ),
                   const SizedBox(height: 4),
                   Text(
-                    (audit.computed ?? audit.stated)?.toStringAsFixed(3) ?? '—',
+                    printedAverage == null
+                        ? (audit.computed ?? audit.stated)?.toStringAsFixed(3) ?? '—'
+                        : '${printedAverage.toStringAsFixed(2)}%',
                     style: tt.displaySmall?.copyWith(
                       color: audit.mismatched ? p.warning : p.accent,
                       fontWeight: FontWeight.w900,
@@ -315,8 +327,12 @@ class _TranscriptDetailScreenState
                     children: [
                       Expanded(
                         child: MetricTile(
-                          label: 'Transcript states',
-                          value: audit.stated?.toStringAsFixed(3) ?? '—',
+                          label: printedAverage == null
+                              ? 'Transcript states'
+                              : 'Estimated 4.0',
+                          value: printedAverage == null
+                              ? audit.stated?.toStringAsFixed(3) ?? '—'
+                              : _fixed(conversions.fourPoint),
                           align: CrossAxisAlignment.center,
                         ),
                       ),
@@ -530,7 +546,10 @@ class _TermCard extends StatelessWidget {
       child: ExpansionTile(
         shape: const Border(),
         title: Text(term.label ?? 'Unassigned term', style: const TextStyle(fontWeight: FontWeight.w700)),
-        subtitle: Text('GPA ${term.statedGpa?.toStringAsFixed(3) ?? '—'} · ${_number(term.creditsEarned ?? 0)} credits', style: tt.bodySmall?.copyWith(color: p.textTertiary)),
+        subtitle: Text(
+          '${term.statedAveragePercent == null ? 'GPA ${term.statedGpa?.toStringAsFixed(3) ?? '—'}' : 'Average ${term.statedAveragePercent!.toStringAsFixed(2)}%'} · ${_number(term.creditsEarned ?? 0)} credits',
+          style: tt.bodySmall?.copyWith(color: p.textTertiary),
+        ),
         children: [
           for (final course in term.courses)
             ListTile(

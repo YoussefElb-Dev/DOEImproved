@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:html/parser.dart' as html_parser;
 import 'package:http/http.dart' as http;
@@ -139,17 +140,19 @@ class DocumentService {
     final saved = <SavedDocument>[];
     final transcript = <TranscriptRecord>[];
     var rejected = 0;
+    final failures = <String>[];
 
     for (final link in links.take(maxDocuments)) {
       try {
-        final response = await _get(link.url, cookies);
-        final bytes = response.bodyBytes;
+        final bytes = link.bytes ?? (await _get(link.url, cookies)).bodyBytes;
         if (bytes.isEmpty || bytes.length > maxDocumentBytes) {
           rejected++;
+          failures.add('${link.title}: invalid file size (${bytes.length} bytes)');
           continue;
         }
         if (!_isPdf(bytes)) {
           rejected++;
+          failures.add('${link.title}: the server returned a web page instead of a PDF');
           continue;
         }
 
@@ -173,8 +176,9 @@ class DocumentService {
         if (text.reliable && link.kind == 'transcript') {
           transcript.addAll(_transcriptParser.parse(text.lines));
         }
-      } catch (_) {
+      } catch (error) {
         rejected++;
+        failures.add('${link.title}: $error');
         continue;
       }
     }
@@ -182,9 +186,8 @@ class DocumentService {
     if (saved.isEmpty) {
       return DocumentSyncResult(
         failure: rejected > 0
-            ? 'Found $rejected link${rejected == 1 ? '' : 's'}, but none of '
-                'them returned a PDF. Open the documents page and tap the one '
-                'you want.'
+            ? 'Found $rejected document${rejected == 1 ? '' : 's'}, but none '
+                'could be saved. ${failures.take(2).join(' ')}'
             : 'No documents are posted for you right now.',
       );
     }
@@ -279,6 +282,9 @@ class DocumentService {
 
   static String kindOf(String haystack) {
     if (haystack.contains('transcript')) return 'transcript';
+    if (haystack.contains('schedule') || haystack.contains('program card')) {
+      return 'schedule';
+    }
     if (haystack.contains('report card')) return 'report card';
     if (haystack.contains('progress')) return 'progress report';
     return 'document';
@@ -303,12 +309,33 @@ class DocumentLink {
   final Uri url;
   final String title;
   final String kind;
+  final Uint8List? bytes;
 
   const DocumentLink({
     required this.url,
     required this.title,
     required this.kind,
+    this.bytes,
   });
+
+  factory DocumentLink.captured({
+    required Uri sourceUrl,
+    required String title,
+    required Uint8List bytes,
+    required String captureId,
+  }) {
+    final safeSource = PortalHosts.isAllowed(sourceUrl.host)
+        ? sourceUrl
+        : Uri.parse(DocumentService.documentsUrl);
+    final clean = title.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final url = safeSource.replace(fragment: 'gradly-capture-$captureId');
+    return DocumentLink(
+      url: url,
+      title: clean.isEmpty ? 'DOE document.pdf' : clean,
+      kind: DocumentService.kindOf('$safeSource $clean'.toLowerCase()),
+      bytes: bytes,
+    );
+  }
 
   /// Builds one from what the in-page scan reported, dropping anything that
   /// points off DOE property.

@@ -38,6 +38,18 @@ class NormalizedTranscriptParser {
     r'(?:[\s-]+([A-Z0-9]{1,6}))?\s+(.+)$',
   );
 
+  /// NYC DOE high-school transcript rows start with a six-character DBN and
+  /// often omit the space between the local course code and title.
+  static final _nycCourse = RegExp(
+    r'^(\d{2}[A-Z]\d{3})'
+    r'((?:[A-Z]{3}\d{2}|[A-Z]{4}\d)(?:QAE|Q[A-Z]|X\*\*)?)'
+    r'\s*(.+?)\s+'
+    r'(P\*?|W\*?|I\*?|[0-9]{1,3}\*?)'
+    r'(?:\s+(\d{1,3}))?\s+'
+    r'(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)$',
+    caseSensitive: false,
+  );
+
   static final _grade = RegExp(
     r'^(A\+|A-|A|B\+|B-|B|C\+|C-|C|D\+|D-|D|F|P|S|U|W|WF|I|INC|IP|'
     r'AU|AUD|CR|NC|NS|EX|TR)$',
@@ -73,13 +85,15 @@ class NormalizedTranscriptParser {
       return null;
     }
 
-    final studentName = labelled(const ['student name', 'name']);
+    final nycIdentity = _nycIdentity(lines);
+    final studentName = nycIdentity?.$1 ?? labelled(const ['student name', 'name']);
     if (studentName != null) confidence['student.name'] = .95;
-    final studentId = labelled(
+    final studentId = nycIdentity?.$2 ?? labelled(
       const ['student id', 'student number', 'osis', 'emplid', 'school id'],
     );
     if (studentId != null) confidence['student.studentId'] = .98;
-    final dobText = labelled(const ['date of birth', 'birth date', 'dob']);
+    final dobText = _nycInlineValue(text, 'dob') ??
+        labelled(const ['date of birth', 'birth date', 'dob']);
     final dob = dobText == null ? null : parseDate(dobText);
     if (dob != null) confidence['student.dateOfBirth'] = .95;
 
@@ -96,7 +110,9 @@ class NormalizedTranscriptParser {
     final issueText = labelled(
       const ['transcript date', 'issue date', 'date issued', 'printed'],
     );
-    final issueDate = issueText == null ? null : parseDate(issueText);
+    final issueDate = issueText == null
+        ? _nycIssueDate(lines)
+        : parseDate(issueText);
     if (issueDate != null) confidence['issueDate'] = .9;
 
     final lowered = text.toLowerCase();
@@ -162,7 +178,12 @@ class NormalizedTranscriptParser {
         continue;
       }
 
-      final parsedCourse = _parseCourse(
+      final parsedCourse = _parseNycCourse(
+            line,
+            termIndex: termBuilders.isEmpty ? 0 : termBuilders.length - 1,
+            confidence: confidence,
+          ) ??
+          _parseCourse(
         line,
         termIndex: termBuilders.isEmpty ? 0 : termBuilders.length - 1,
         confidence: confidence,
@@ -221,6 +242,8 @@ class NormalizedTranscriptParser {
         name: studentName,
         studentId: studentId,
         dateOfBirth: dob,
+        address: _nycValue(lines, 'address'),
+        gradeLevel: _nycInlineValue(text, 'grade level'),
       ),
       institution: TranscriptInstitution(name: institutionName),
       issueDate: issueDate,
@@ -234,6 +257,7 @@ class NormalizedTranscriptParser {
       transfers: transfers,
       degrees: degrees,
       warnings: warnings,
+      extraFields: _nycExtraFields(text, lines),
       confidence: confidence,
     );
 
@@ -245,6 +269,73 @@ class NormalizedTranscriptParser {
     return TranscriptParseResult(
       transcript: transcript,
       validationErrors: errors,
+    );
+  }
+
+  NormalizedCourse? _parseNycCourse(
+    String line, {
+    required int termIndex,
+    required Map<String, double> confidence,
+  }) {
+    final match = _nycCourse.firstMatch(line);
+    if (match == null) return null;
+
+    final dbn = match.group(1)!.toUpperCase();
+    final localCode = match.group(2)!.toUpperCase();
+    final title = _clean(match.group(3))!;
+    final mark = match.group(4)!.toUpperCase();
+    final numericEquivalent = double.tryParse(match.group(5) ?? '');
+    final attempted = double.parse(match.group(6)!);
+    final earned = double.parse(match.group(7)!);
+    final excludedByStar = mark.endsWith('*');
+    final cleanMark = mark.replaceAll('*', '');
+    final numericMark = double.tryParse(cleanMark) ?? numericEquivalent;
+    final letterMark = double.tryParse(cleanMark) == null ? cleanMark : null;
+    final codeParts = RegExp(r'^([A-Z]+)(\d.*)$').firstMatch(localCode);
+    final subject = codeParts?.group(1) ?? localCode;
+    final number = codeParts?.group(2);
+    final flags = _flags('$title ${letterMark ?? ''}');
+    final key = '$dbn$localCode';
+    final path = 'terms[$termIndex].courses[$key]';
+    for (final field in const [
+      'subjectCode',
+      'courseNumber',
+      'title',
+      'creditsAttempted',
+      'creditsEarned',
+    ]) {
+      confidence['$path.$field'] = .98;
+    }
+    confidence['$path.${letterMark == null ? 'numericGrade' : 'letterGrade'}'] = .99;
+
+    return NormalizedCourse(
+      id: key.toLowerCase(),
+      subjectCode: subject,
+      courseNumber: number,
+      title: _titleCase(title),
+      creditsAttempted: attempted,
+      creditsEarned: earned,
+      letterGrade: letterMark,
+      numericGrade: numericMark,
+      countsTowardGpa: !excludedByStar && !flags.passFail,
+      flags: CourseFlags(
+        passFail: flags.passFail,
+        audit: flags.audit,
+        withdrawn: flags.withdrawn,
+        incomplete: flags.incomplete,
+        inProgress: flags.inProgress,
+        repeated: flags.repeated,
+        gradeReplaced: flags.gradeReplaced,
+        transfer: flags.transfer,
+        ap: flags.ap,
+        ib: flags.ib,
+        clep: flags.clep,
+        dualEnrollment: flags.dualEnrollment,
+        honors: flags.honors,
+        weighted: localCode.contains('**'),
+      ),
+      sourceInstitution: dbn,
+      rawLine: line,
     );
   }
 
@@ -431,26 +522,58 @@ class NormalizedTranscriptParser {
       return value;
     }
 
-    return CumulativeSummary(
-      creditsAttempted: field(const [
+    var creditsAttempted = field(const [
         'cumulative credits attempted',
         'total credits attempted',
-      ], 'creditsAttempted'),
-      creditsEarned: field(const [
+      ], 'creditsAttempted');
+    var creditsEarned = field(const [
         'cumulative credits earned',
         'total credits earned',
         'credits earned',
-      ], 'creditsEarned'),
-      gpaCredits: field(const [
+      ], 'creditsEarned');
+    var gpaCredits = field(const [
         'cumulative gpa hours',
         'total gpa hours',
         'gpa credits',
-      ], 'gpaCredits'),
+      ], 'gpaCredits');
+    double? averagePercent;
+    for (final line in lines) {
+      final credits = RegExp(
+        r'cumulative\s*:\s*actual credits\s*/\s*credits earned\s*'
+        r'(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)',
+        caseSensitive: false,
+      ).firstMatch(line);
+      if (credits != null) {
+        creditsAttempted ??= double.tryParse(credits.group(1)!);
+        creditsEarned ??= double.tryParse(credits.group(2)!);
+      }
+      final average = RegExp(
+        r'cumulative average\s*:\s*(\d+(?:\.\d+)?)%?',
+        caseSensitive: false,
+      ).firstMatch(line);
+      if (average != null) {
+        averagePercent ??= double.tryParse(average.group(1)!);
+        confidence['cumulative.cumulativeAveragePercent'] = .99;
+      }
+      final averagedCredits = RegExp(
+        r'cumulative credits averaged\s*:\s*(\d+(?:\.\d+)?)',
+        caseSensitive: false,
+      ).firstMatch(line);
+      if (averagedCredits != null) {
+        gpaCredits ??= double.tryParse(averagedCredits.group(1)!);
+      }
+    }
+
+    return CumulativeSummary(
+      creditsAttempted: creditsAttempted,
+      creditsEarned: creditsEarned,
+      gpaCredits: gpaCredits,
       qualityPoints: field(const [
         'cumulative quality points',
         'total quality points',
       ], 'qualityPoints'),
       cumulativeGpa: field(const ['cumulative gpa', 'cum gpa'], 'cumulativeGpa'),
+      cumulativeAveragePercent: averagePercent,
       majorGpa: field(const ['major gpa'], 'majorGpa'),
       institutionalGpa:
           field(const ['institutional gpa', 'institution gpa'], 'institutionalGpa'),
@@ -514,6 +637,9 @@ class NormalizedTranscriptParser {
   static String? _institutionHeading(List<String> lines) {
     for (final line in lines.take(18)) {
       final lower = line.toLowerCase();
+      if (lower.contains('nyc department of education')) {
+        return 'NYC Department of Education';
+      }
       if (line.length <= 90 &&
           (lower.contains(' high school') ||
               lower.contains(' university') ||
@@ -523,6 +649,85 @@ class NormalizedTranscriptParser {
       }
     }
     return null;
+  }
+
+  static (String, String)? _nycIdentity(List<String> lines) {
+    for (final line in lines.take(20)) {
+      final match = RegExp(
+        r'^name\s*/\s*id\s*:\s*(.+?)\s*/\s*([0-9]{6,12})$',
+        caseSensitive: false,
+      ).firstMatch(line);
+      if (match == null) continue;
+      final rawName = match.group(1)!.trim();
+      final comma = rawName.split(',');
+      final name = comma.length == 2
+          ? '${_titleCase(comma[1].trim())} ${_titleCase(comma[0].trim())}'
+          : _titleCase(rawName);
+      return (name, match.group(2)!);
+    }
+    return null;
+  }
+
+  static String? _nycValue(List<String> lines, String label) {
+    for (var i = 0; i < lines.length; i++) {
+      final match = RegExp(
+        '^${RegExp.escape(label)}\\s*:\\s*(.+)$',
+        caseSensitive: false,
+      ).firstMatch(lines[i]);
+      if (match == null) continue;
+      var value = match.group(1)!.trim();
+      if (label == 'address' &&
+          i + 1 < lines.length &&
+          RegExp(r'^\d{5}(?:-\d{4})?$').hasMatch(lines[i + 1])) {
+        value = '$value ${lines[i + 1]}';
+      }
+      return value.isEmpty ? null : value;
+    }
+    return null;
+  }
+
+  static String? _nycInlineValue(String text, String label) {
+    final match = RegExp(
+      '${RegExp.escape(label)}\\s*:\\s*([^\\n:]+?)(?=[A-Za-z ]+\\s*:|\\n|$)',
+      caseSensitive: false,
+    ).firstMatch(text);
+    return _clean(match?.group(1));
+  }
+
+  static DateTime? _nycIssueDate(List<String> lines) {
+    final pattern = RegExp(
+      r'\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}\b',
+      caseSensitive: false,
+    );
+    for (final line in lines.reversed.take(8)) {
+      final match = pattern.firstMatch(line);
+      if (match != null) return parseDate(match.group(0)!);
+    }
+    return null;
+  }
+
+  static Map<String, String> _nycExtraFields(String text, List<String> lines) {
+    if (!text.toLowerCase().contains('nyc department of education')) {
+      return const {};
+    }
+    final result = <String, String>{};
+    for (final entry in const {
+      'officialCode': 'ofcl',
+      'status': 'status',
+      'admitDate': 'admit date',
+      'dischargeDate': 'discharge date',
+      'graduationDate': 'graduation date',
+      'rank': 'rank',
+      'counselorName': 'counselor name',
+    }.entries) {
+      final value = _nycInlineValue(text, entry.value);
+      if (value != null) result[entry.key] = value;
+    }
+    final legend = lines.where((line) =>
+        line.toLowerCase().contains('not averaged') ||
+        line.toLowerCase().contains('weighted courses')).join(' ');
+    if (legend.isNotEmpty) result['gradingLegend'] = legend;
+    return result;
   }
 
   static bool _looksLikeSummary(String line) {
@@ -604,6 +809,7 @@ class _TermBuilder {
   final String? label;
   final courses = <NormalizedCourse>[];
   double? statedGpa;
+  double? statedAveragePercent;
   double? attempted;
   double? earned;
   double? gpaCredits;
@@ -622,6 +828,23 @@ class _TermBuilder {
     earned ??= _numberAfter(line, const ['credits earned', 'earned']);
     gpaCredits ??= _numberAfter(line, const ['gpa hours', 'gpa credits']);
     quality ??= _numberAfter(line, const ['quality points', 'quality pts']);
+    final nycAverage = RegExp(
+      r'term avg\s*:\s*(\d+(?:\.\d+)?)%?',
+      caseSensitive: false,
+    ).firstMatch(line);
+    statedAveragePercent ??= nycAverage == null
+        ? null
+        : double.tryParse(nycAverage.group(1)!);
+    final nycCredits = RegExp(
+      r'actual credits\s*/\s*credits earned\s*:\s*'
+      r'(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)',
+      caseSensitive: false,
+    ).firstMatch(line);
+    if (nycCredits != null) {
+      attempted ??= double.tryParse(nycCredits.group(1)!);
+      earned ??= double.tryParse(nycCredits.group(2)!);
+    }
+    gpaCredits ??= _numberAfter(line, const ['term credits averaged']);
     standing ??= _textAfter(line, const ['academic standing', 'standing']);
     final start = _textAfter(line, const ['term start', 'start date']);
     final end = _textAfter(line, const ['term end', 'end date']);
@@ -659,6 +882,7 @@ class _TermBuilder {
       startDate: startDate,
       endDate: endDate,
       statedGpa: statedGpa,
+      statedAveragePercent: statedAveragePercent,
       creditsAttempted: attempted,
       creditsEarned: earned,
       gpaCredits: gpaCredits,

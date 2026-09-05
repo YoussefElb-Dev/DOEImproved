@@ -43,6 +43,85 @@ Conferral Date: 2026-06-26
 Magna Cum Laude
 ''';
 
+  const nycTranscriptText = '''
+NYC Department Of Educationa
+Student Transcript
+Name / ID   :STUDENT, TEST /  000000000
+Address :1 TEST STREET NEW YORK NY
+10001
+Ofcl :000 Grade Level :11Status :A
+Admit Date :10/25/2023 Discharge Date :
+DOB :01/01/2009 Graduation Date :
+2025/ Term 2 Actual
+27Q309AES22 DRAWING 2 OF 2 90 90 1.00/1.00
+27Q309EES86QA ENGLISH 11 CC 2 OF 2 88 88 1.00/1.00
+27Q309HUS22 US HISTORY 2 OF 2 82 82 1.00/1.00
+27Q309MQS42QEMATH FOR HEALTH PROF 92 92 0.50/0.50
+27Q309MRS22QAECC ALGEBRA 2 2 OF 2 92 92 2.00/2.00
+27Q309PFSA6 PHYS ED 6 OF 8 11TH 95* 95 0.58/0.58
+27Q309SCS22 CHEMISTRY 2 OF 2 96 96 1.00/1.00
+27Q309SCS22QL CHEMISTRY LAB 2 OF 2 P* 0.00/0.00
+Term Avg :90.15% Term : Actual Credits / Credits Earned : 7.08 / 7.08
+Term Credits Averaged :6.50
+2025/ Term 1 Actual
+27Q309AES21 DRAWING 1 OF 2 90 90 1.00/1.00
+27Q309EES85QA ENGLISH 11 CC 1 OF 2 94 94 1.00/1.00
+27Q309HUS21 US HISTORY 1 OF 2 92 92 1.00/1.00
+27Q309MQS41QEMATH FOR HEALTH PROF 92 92 0.50/0.50
+27Q309MRS21QAECC ALGEBRA 2 1 OF 2 92 92 2.00/2.00
+27Q309PFSA5 PHYS ED 5 OF 8 11TH 95* 95 0.58/0.58
+27Q309SCS21 CHEMISTRY 1 OF 2 94 94 1.00/1.00
+27Q309SCS21QL CHEMISTRY LAB 1 OF 2 P* 0.00/0.00
+Term Avg :92.31% Term : Actual Credits / Credits Earned : 7.08 / 7.08
+Term Credits Averaged :6.50
+2024/ Term 2 Actual
+27Q309EES84 ENGLISH 10 2 OF 2 90 90 1.00/1.00
+27Q309FSS62 SPANISH I 2 OF 2 97 97 1.00/1.00
+27Q309HVS11 PART IN GOVT 94 94 1.00/1.00
+27Q309MGS22QACC GEOMETRY 2 OF 2 98 98 1.00/1.00
+27Q309PFSA4 PHYS ED 4 OF 8 10TH 100* 100 0.58/0.58
+27Q309SBS22X** AP BIOLOGY 97 97 1.00/1.00
+27Q309SJS22 EARTH AND SPACE SCIE 97 97 1.00/1.00
+27Q309SJS22QL EARTH AND SPACE SCIE P* 0.00/0.00
+Term Avg :97.12% Term : Actual Credits / Credits Earned : 6.58 / 6.58
+Term Credits Averaged :6.00
+2024/ Term 1 Actual
+27Q309EES83 ENGLISH 10 1 OF 2 95 95 1.00/1.00
+27Q309FSS61 SPANISH I 1 OF 2 95 95 1.00/1.00
+27Q309HES11 ECONOMICS 88 88 1.00/1.00
+27Q309MGS21QACC GEOMETRY 1 OF 2 100 100 1.00/1.00
+27Q309PFSA3 PHYS ED 3 OF 8 10TH 100* 100 0.58/0.58
+27Q309SBS21X** AP BIOLOGY 100 100 1.00/1.00
+27Q309SJS21 EARTH AND SPACE SCIE 100 100 1.00/1.00
+27Q309SJS21QL EARTH AND SPACE SCIE P* 0.00/0.00
+Term Avg :98.00% Term : Actual Credits / Credits Earned : 6.58 / 6.58
+Term Credits Averaged :6.00
+2023/ Term 2 Actual
+27Q309EES82 ENGLISH 9 2 OF 2 96 96 1.00/1.00
+27Q309HGS22QE GLOBAL HISTORY 1 YR 95 95 2.00/2.00
+27Q309HQS22QGWORLD CIVICS 2 of 2 95 95 0.50/0.50
+27Q309MES22QAECC ALGEBRA 2 of 2 DO 100 100 2.00/2.00
+27Q309PFSA2 PHYS ED 2 OF 8 9TH G 99* 99 0.50/0.50
+27Q309SLS22 LIVING ENV 2 OF 2 95 95 1.00/1.00
+27Q309SLS22QL LIVING ENV LAB 2 OF P* 0.00/0.00
+Term Avg :96.69% Term : Actual Credits / Credits Earned : 7.00 / 7.00
+Term Credits Averaged :6.50
+2023/ Term 1 Actual
+27Q309EES81 ENGLISH 9 1 OF 2 100 100 1.00/1.00
+27Q309HGS21QE GLOBAL HISTORY 1 YR 96 96 2.00/2.00
+27Q309HQS21QGWORLD CIVICS 1 of 2 96 96 0.50/0.50
+27Q309MES21QAECC ALGEBRA 1 of 2 DO 98 98 2.00/2.00
+27Q309PHS11QA HEALTH AND SAFETY 98 98 1.00/1.00
+27Q309SLS21 LIVING ENV 1 OF 2 97 97 1.00/1.00
+27Q309SLS21QL LIVING ENV LAB 1 OF P* 0.00/0.00
+Term Avg :97.47% Term : Actual Credits / Credits Earned : 7.50 / 7.50
+Term Credits Averaged :7.50
+Cumulative : Actual Credits / Credits Earned 41.82 / 41.82
+Cumulative Average: 95.29% Cumulative Credits Averaged: 39.00
+* Not Averaged ** Weighted Courses High School
+Page 1 of 1 2026 Copyright NYC Department Of Education 10:00:44 PM July 17, 2026
+''';
+
   group('normalized parser and schema', () {
     test('extracts labelled, term, course and cumulative fields', () {
       final result = const NormalizedTranscriptParser().parse(
@@ -84,6 +163,35 @@ Magna Cum Laude
       expect(migrated.schemaVersion, currentTranscriptSchemaVersion);
       expect(migrated.repeatPolicy, RepeatPolicy.unknown);
       expect(migrated.degrees, isEmpty);
+    });
+
+    test('extracts every course and printed average from a NYC transcript', () {
+      final parsed = const NormalizedTranscriptParser().parse(
+        rawText: nycTranscriptText,
+        sourceFileName: 'Transcript.pdf',
+      ).transcript;
+
+      expect(parsed.student.name, 'Test Student');
+      expect(parsed.student.studentId, '000000000');
+      expect(parsed.student.gradeLevel, '11');
+      expect(parsed.student.dateOfBirth, DateTime(2009, 1, 1));
+      expect(parsed.institution.name, 'NYC Department of Education');
+      expect(parsed.issueDate, DateTime(2026, 7, 17));
+      expect(parsed.terms, hasLength(6));
+      expect(parsed.courseCount, 46);
+      expect(parsed.cumulative.creditsEarned, 41.82);
+      expect(parsed.cumulative.gpaCredits, 39);
+      expect(parsed.cumulative.cumulativeAveragePercent, 95.29);
+      expect(parsed.terms.first.statedAveragePercent, 90.15);
+      expect(parsed.terms.first.creditsEarned, 7.08);
+      expect(
+        parsed.terms.expand((term) => term.courses).where((course) => course.flags.weighted),
+        hasLength(2),
+      );
+      expect(
+        parsed.terms.first.courses.firstWhere((course) => course.title!.startsWith('Phys Ed')).countsTowardGpa,
+        isFalse,
+      );
     });
   });
 

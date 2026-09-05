@@ -46,11 +46,13 @@ class ScaleConversions {
 class TranscriptTermMetric {
   final String label;
   final double? gpa;
+  final double? averagePercent;
   final double creditsEarned;
 
   const TranscriptTermMetric({
     required this.label,
     this.gpa,
+    this.averagePercent,
     required this.creditsEarned,
   });
 }
@@ -160,11 +162,26 @@ class TranscriptAnalytics {
     );
   }
 
+  ScaleConversions convertPercentage(double? percentage) {
+    if (percentage == null) return const ScaleConversions();
+    final percent = percentage.clamp(0, 100).toDouble();
+    final four = GradeScale.gpaPointsFor(score: percent);
+    return ScaleConversions(
+      fourPoint: four,
+      fivePoint: four == null ? null : four / 4 * 5,
+      fourThreePoint: four == null ? null : four / 4 * 4.3,
+      percentage: percent,
+      letter: GradeScale.letterFor(percent),
+      estimated: true,
+    );
+  }
+
   List<TranscriptTermMetric> termMetrics(NormalizedTranscript transcript) => [
         for (final term in transcript.terms)
           TranscriptTermMetric(
             label: term.label ?? 'Unassigned term',
             gpa: term.statedGpa ?? _termGpa(term, transcript),
+            averagePercent: term.statedAveragePercent,
             creditsEarned: term.creditsEarned ??
                 term.courses.fold(
                   0,

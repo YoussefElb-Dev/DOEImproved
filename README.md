@@ -36,6 +36,9 @@ projections on top.
   status colours, and a live What-If slider per category
 - **Schedule** — an "in class / up next" card with a period progress bar, and the day's
   periods with the current one highlighted
+- **Official school calendar** — all published NYCPS 2026–27 closures,
+  recesses, conference days, Regents periods, remote instruction, and first/
+  last school days appear alongside assignment due dates
 - **Work & transcript** — assignments bucketed into Overdue / Due today / This week /
   Later, and a transcript grouped by term with a per-term GPA
 - **Real grade scales** — NYC numeric marks where 65 passes, letter grades with +/-,

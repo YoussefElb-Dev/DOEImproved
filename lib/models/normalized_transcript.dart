@@ -2,7 +2,7 @@
 ///
 /// Every field that may be absent is nullable. Parsing code must not invent a
 /// value merely to make the UI look complete.
-const int currentTranscriptSchemaVersion = 2;
+const int currentTranscriptSchemaVersion = 3;
 
 enum CreditSystem { semester, quarter, unknown }
 
@@ -14,20 +14,32 @@ class TranscriptStudent {
   final String? name;
   final String? studentId;
   final DateTime? dateOfBirth;
+  final String? address;
+  final String? gradeLevel;
 
-  const TranscriptStudent({this.name, this.studentId, this.dateOfBirth});
+  const TranscriptStudent({
+    this.name,
+    this.studentId,
+    this.dateOfBirth,
+    this.address,
+    this.gradeLevel,
+  });
 
   factory TranscriptStudent.fromJson(Map<String, dynamic> j) =>
       TranscriptStudent(
         name: _string(j['name']),
         studentId: _string(j['studentId']),
         dateOfBirth: _date(j['dateOfBirth']),
+        address: _string(j['address']),
+        gradeLevel: _string(j['gradeLevel']),
       );
 
   Map<String, dynamic> toJson() => {
         'name': name,
         'studentId': studentId,
         'dateOfBirth': _dateJson(dateOfBirth),
+        'address': address,
+        'gradeLevel': gradeLevel,
       };
 }
 
@@ -140,6 +152,7 @@ class CourseFlags {
   final bool clep;
   final bool dualEnrollment;
   final bool honors;
+  final bool weighted;
 
   const CourseFlags({
     this.passFail = false,
@@ -155,6 +168,7 @@ class CourseFlags {
     this.clep = false,
     this.dualEnrollment = false,
     this.honors = false,
+    this.weighted = false,
   });
 
   factory CourseFlags.fromJson(Map<String, dynamic> j) => CourseFlags(
@@ -171,6 +185,7 @@ class CourseFlags {
         clep: _bool(j['clep']),
         dualEnrollment: _bool(j['dualEnrollment']),
         honors: _bool(j['honors']),
+        weighted: _bool(j['weighted']),
       );
 
   Map<String, dynamic> toJson() => {
@@ -187,6 +202,7 @@ class CourseFlags {
         'clep': clep,
         'dualEnrollment': dualEnrollment,
         'honors': honors,
+        'weighted': weighted,
       };
 }
 
@@ -270,6 +286,7 @@ class NormalizedTerm {
   final DateTime? startDate;
   final DateTime? endDate;
   final double? statedGpa;
+  final double? statedAveragePercent;
   final double? creditsAttempted;
   final double? creditsEarned;
   final double? gpaCredits;
@@ -288,6 +305,7 @@ class NormalizedTerm {
     this.startDate,
     this.endDate,
     this.statedGpa,
+    this.statedAveragePercent,
     this.creditsAttempted,
     this.creditsEarned,
     this.gpaCredits,
@@ -307,6 +325,7 @@ class NormalizedTerm {
         startDate: _date(j['startDate']),
         endDate: _date(j['endDate']),
         statedGpa: _number(j['statedGpa']),
+        statedAveragePercent: _number(j['statedAveragePercent']),
         creditsAttempted: _number(j['creditsAttempted']),
         creditsEarned: _number(j['creditsEarned']),
         gpaCredits: _number(j['gpaCredits']),
@@ -329,6 +348,7 @@ class NormalizedTerm {
         'startDate': _dateJson(startDate),
         'endDate': _dateJson(endDate),
         'statedGpa': statedGpa,
+        'statedAveragePercent': statedAveragePercent,
         'creditsAttempted': creditsAttempted,
         'creditsEarned': creditsEarned,
         'gpaCredits': gpaCredits,
@@ -348,6 +368,7 @@ class CumulativeSummary {
   final double? gpaCredits;
   final double? qualityPoints;
   final double? cumulativeGpa;
+  final double? cumulativeAveragePercent;
   final double? majorGpa;
   final double? institutionalGpa;
   final double? overallGpa;
@@ -359,6 +380,7 @@ class CumulativeSummary {
     this.gpaCredits,
     this.qualityPoints,
     this.cumulativeGpa,
+    this.cumulativeAveragePercent,
     this.majorGpa,
     this.institutionalGpa,
     this.overallGpa,
@@ -372,6 +394,7 @@ class CumulativeSummary {
         gpaCredits: _number(j['gpaCredits']),
         qualityPoints: _number(j['qualityPoints']),
         cumulativeGpa: _number(j['cumulativeGpa']),
+        cumulativeAveragePercent: _number(j['cumulativeAveragePercent']),
         majorGpa: _number(j['majorGpa']),
         institutionalGpa: _number(j['institutionalGpa']),
         overallGpa: _number(j['overallGpa']),
@@ -384,6 +407,7 @@ class CumulativeSummary {
         'gpaCredits': gpaCredits,
         'qualityPoints': qualityPoints,
         'cumulativeGpa': cumulativeGpa,
+        'cumulativeAveragePercent': cumulativeAveragePercent,
         'majorGpa': majorGpa,
         'institutionalGpa': institutionalGpa,
         'overallGpa': overallGpa,
@@ -479,6 +503,7 @@ class NormalizedTranscript {
   final List<TransferBlock> transfers;
   final List<DegreeAward> degrees;
   final List<String> warnings;
+  final Map<String, String> extraFields;
 
   /// Confidence by JSON-style path, 0 through 1. Missing means not parsed.
   final Map<String, double> confidence;
@@ -504,6 +529,7 @@ class NormalizedTranscript {
     this.transfers = const [],
     this.degrees = const [],
     this.warnings = const [],
+    this.extraFields = const {},
     this.confidence = const {},
   });
 
@@ -554,6 +580,10 @@ class NormalizedTranscript {
           DegreeAward.fromJson(_map(d)),
       ],
       warnings: _strings(j['warnings']),
+      extraFields: {
+        for (final e in _map(j['extraFields']).entries)
+          e.key: e.value.toString(),
+      },
       confidence: {
         for (final e in _map(j['confidence']).entries)
           e.key: _number(e.value) ?? 0,
@@ -582,6 +612,7 @@ class NormalizedTranscript {
         'transfers': [for (final t in transfers) t.toJson()],
         'degrees': [for (final d in degrees) d.toJson()],
         'warnings': warnings,
+        'extraFields': extraFields,
         'confidence': confidence,
       };
 
@@ -604,6 +635,9 @@ class TranscriptSchemaMigrator {
         case 1:
           data = _oneToTwo(data);
           version = 2;
+        case 2:
+          data = _twoToThree(data);
+          version = 3;
         default:
           throw FormatException('No migration exists for schema $version');
       }
@@ -621,6 +655,12 @@ class TranscriptSchemaMigrator {
         'warnings': old['warnings'] ?? <dynamic>[],
         'confidence': old['confidence'] ?? <String, dynamic>{},
         'schemaVersion': 2,
+      };
+
+  static Map<String, dynamic> _twoToThree(Map<String, dynamic> old) => {
+        ...old,
+        'extraFields': old['extraFields'] ?? <String, dynamic>{},
+        'schemaVersion': 3,
       };
 }
 

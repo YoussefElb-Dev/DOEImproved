@@ -13,6 +13,9 @@ Future<void> showSearchSheet(BuildContext context) {
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
+    isDismissible: true,
+    enableDrag: true,
     backgroundColor: Colors.transparent,
     builder: (_) => const _SearchSheet(),
   );
@@ -100,17 +103,32 @@ class _SearchSheetState extends ConsumerState<_SearchSheet> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(height: 10),
-            Container(
-              width: 38,
-              height: 4,
-              decoration: BoxDecoration(
-                color: p.border,
-                borderRadius: BorderRadius.circular(2),
+            SizedBox(
+              height: 44,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Container(
+                    width: 38,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: p.border,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Positioned(
+                    right: 8,
+                    child: IconButton(
+                      tooltip: 'Close search',
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ),
+                ],
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+              padding: const EdgeInsets.fromLTRB(16, 2, 16, 10),
               child: TextField(
                 controller: _controller,
                 focusNode: _focus,

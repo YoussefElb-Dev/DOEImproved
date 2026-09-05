@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:doe_improved/services/document_service.dart';
 import 'package:doe_improved/services/native_cookie_bridge.dart';
@@ -298,6 +299,23 @@ void main() {
   });
 
   group('downloadAll', () {
+    test('saves PDF bytes captured inside the authenticated WebView', () async {
+      final bytes = Uint8List.fromList(pdf('Fall 2026\nMAT101 Algebra A 1'));
+      final link = DocumentLink.captured(
+        sourceUrl: Uri.parse(DocumentService.documentsUrl),
+        title: 'Official Transcript',
+        bytes: bytes,
+        captureId: 'capture-1',
+      );
+      final client = MockClient((_) async => throw StateError('HTTP must not run'));
+
+      final result = await DocumentService(client: client)
+          .downloadAll([link], const {}, store);
+
+      expect(result.saved, hasLength(1));
+      expect(result.failure, isNull);
+    });
+
     test('saves the links the page scan turned up', () async {
       final links = [
         DocumentLink.from(

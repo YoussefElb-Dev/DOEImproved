@@ -26,6 +26,21 @@ class TranscriptTextParser {
     caseSensitive: false,
   );
 
+  static final RegExp _nycTerm = RegExp(
+    r'^(20\d{2})\s*/\s*term\s*(\d{1,2})\b',
+    caseSensitive: false,
+  );
+
+  static final RegExp _nycCourse = RegExp(
+    r'^(\d{2}[A-Z]\d{3})'
+    r'((?:[A-Z]{3}\d{2}|[A-Z]{4}\d)(?:QAE|Q[A-Z]|X\*\*)?)'
+    r'\s*(.+?)\s+'
+    r'(P\*?|W\*?|I\*?|[0-9]{1,3}\*?)'
+    r'(?:\s+(\d{1,3}))?\s+'
+    r'(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)$',
+    caseSensitive: false,
+  );
+
   /// `MAT41`, `ENS21X`, `SCI-401` — a course code, not a word.
   static final RegExp _courseCode =
       RegExp(r'^[A-Z]{1,4}[-]?\d{2,4}[A-Z]{0,2}$');
@@ -58,6 +73,8 @@ class TranscriptTextParser {
   }
 
   String? _termIn(String line) {
+    final nyc = _nycTerm.firstMatch(line);
+    if (nyc != null) return '${nyc.group(1)} Term ${nyc.group(2)}';
     if (_termHeading.hasMatch(line)) return _titleCaseTerm(line);
     if (_numberedTerm.hasMatch(line)) return line.toUpperCase();
     return null;
@@ -82,6 +99,30 @@ class TranscriptTextParser {
 
   /// Reads one course row by peeling typed values off the right-hand end.
   TranscriptRecord? _rowFrom(String line, String term) {
+    final nyc = _nycCourse.firstMatch(line);
+    if (nyc != null) {
+      final mark = nyc.group(4)!.toUpperCase();
+      final cleanMark = mark.replaceAll('*', '');
+      final numeric = double.tryParse(cleanMark) ??
+          double.tryParse(nyc.group(5) ?? '') ??
+          0;
+      final letter = double.tryParse(cleanMark) == null
+          ? cleanMark
+          : GradeScale.letterFor(numeric);
+      final averaged = !mark.endsWith('*') && letter != 'P';
+      return TranscriptRecord(
+        courseTitle: _titleCase(nyc.group(3)!.trim()),
+        courseCode: '${nyc.group(1)}${nyc.group(2)}',
+        finalScore: numeric,
+        letterGrade: letter,
+        creditsEarned: double.parse(nyc.group(7)!),
+        term: term,
+        gpaPoints: averaged
+            ? GradeScale.gpaPointsFor(letter: letter, score: numeric) ?? 0
+            : 0,
+      );
+    }
+
     final tokens = line.split(' ').where((t) => t.isNotEmpty).toList();
     if (tokens.length < 2) return null;
 

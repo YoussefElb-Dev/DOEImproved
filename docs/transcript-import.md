@@ -19,19 +19,21 @@ and original PDF with a temporary file and recovery backup.
 
 ## Versioned schema
 
-`NormalizedTranscript` currently uses schema version 2. It contains:
+`NormalizedTranscript` currently uses schema version 3. It contains:
 
 - source fingerprint, source filename/document ID, import date, and raw text;
-- student name, ID, and date of birth;
+- student name, ID, date of birth, address, and grade level;
 - institution identity/address, issue date, and official status;
 - program, degree sought, majors, minors, concentrations, catalog year, and
   required credits;
 - semester/quarter credit system, repeat policy, and the printed grading
   legend;
-- terms with dates, GPA/totals, standing, honors/probation flags, and courses;
+- terms with dates, GPA or printed percent average, totals,
+  standing, honors/probation flags, and courses;
 - course identifiers, credits, grades/points, GPA inclusion, source school,
   and status/type flags;
-- cumulative totals and institutional, major, overall, and cumulative GPAs;
+- cumulative totals, the printed cumulative percent average, and
+  institutional, major, overall, and cumulative GPAs;
 - transfer blocks and degrees with conferral dates and Latin honors;
 - warnings and field-level confidence scores.
 
@@ -77,3 +79,15 @@ from visual order can produce joined or reordered rows. Repeat policies are
 never inferred from a repeated course alone. Weighted GPA conversions cannot
 reconstruct a school's weighting policy unless the transcript prints the
 actual points or legend.
+
+NYC DOE high-school transcripts have a dedicated parser for DBN-prefixed rows,
+joined course-code/title text, `actual/earned` credit pairs, numbered terms,
+single-star not-averaged marks, and double-star weighted courses. The official
+NYC cumulative and term percentages remain percent values; estimated 4.0, 4.3,
+5.0, and letter conversions are displayed separately and never overwrite them.
+
+The DOE document page uses `#` links that submit a hidden form instead of
+linking directly to a PDF. Gradly captures authenticated form, fetch, XHR,
+popup, and blob responses inside the WebView and transfers verified PDF bytes
+to local storage in chunks. It does not rely on re-fetching the visible `#`
+URL outside the WebView.
