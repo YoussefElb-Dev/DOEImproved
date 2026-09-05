@@ -189,7 +189,9 @@ Page 1 of 1 2026 Copyright NYC Department Of Education 10:00:44 PM July 17, 2026
         hasLength(2),
       );
       expect(
-        parsed.terms.first.courses.firstWhere((course) => course.title!.startsWith('Phys Ed')).countsTowardGpa,
+        parsed.terms.first.courses
+            .firstWhere((course) => course.courseNumber == '6')
+            .countsTowardGpa,
         isFalse,
       );
     });

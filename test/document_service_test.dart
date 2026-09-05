@@ -350,7 +350,7 @@ void main() {
       );
 
       expect(result.saved, isEmpty);
-      expect(result.failure, contains('tap the one you want'));
+      expect(result.failure, contains('returned a web page instead of a PDF'));
     });
   });
 }

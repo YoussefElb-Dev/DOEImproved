@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -147,6 +148,7 @@ class _DocumentsBrowserScreenState extends State<DocumentsBrowserScreen> {
       })
       .catch(function () { if (navigateWhenHtml) location.href = absolute; });
   }
+  window.__gradlyCaptureUrl = captureUrl;
   function captureForm(form, title, fallback) {
     var method = String(form.method || 'GET').toUpperCase();
     var action = form.action || location.href;
@@ -155,7 +157,11 @@ class _DocumentsBrowserScreenState extends State<DocumentsBrowserScreen> {
       var query = new URLSearchParams(new FormData(form)).toString();
       action += (action.indexOf('?') >= 0 ? '&' : '?') + query;
     } else {
-      options.body = new FormData(form);
+      var formData = new FormData(form);
+      var encoding = String(form.enctype || '').toLowerCase();
+      options.body = encoding.indexOf('multipart/form-data') >= 0
+        ? formData
+        : new URLSearchParams(formData);
     }
     originalFetch(action, options)
       .then(function (response) { return response.arrayBuffer(); })
@@ -297,13 +303,23 @@ class _DocumentsBrowserScreenState extends State<DocumentsBrowserScreen> {
   NavigationDecision _onNavigation(NavigationRequest request) {
     final url = request.url;
     if (_looksLikeDownload(url)) {
-      final link = DocumentLink.from(url, '');
-      if (link != null && _record([link]) > 0) {
-        _toast('Captured ${link.title}');
-      }
+      unawaited(_captureNavigation(url));
       return NavigationDecision.prevent;
     }
     return NavigationDecision.navigate;
+  }
+
+  Future<void> _captureNavigation(String url) async {
+    try {
+      await _controller.runJavaScript(
+        'window.__gradlyCaptureUrl && window.__gradlyCaptureUrl('
+        '${jsonEncode(url)}, document.title, false);',
+      );
+    } catch (error) {
+      if (mounted) {
+        setState(() => _error = 'Could not capture the PDF request: $error');
+      }
+    }
   }
 
   static bool _looksLikeDownload(String url) {

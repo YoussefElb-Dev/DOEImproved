@@ -187,6 +187,23 @@ void main() {
       expect(records.single.term, 'MP2');
     });
 
+    test('reads NYC transcript DBN rows and numbered term headings', () {
+      final records = parser.parse([
+        '2025 / TERM 2',
+        '27Q309ENG41 ENGLISH 11 97 97 1.00 / 1.00',
+        '27Q309PFSA6QAE PHYS ED 95* 95 0.50 / 0.50',
+      ]);
+
+      expect(records, hasLength(2));
+      expect(records.first.courseCode, '27Q309ENG41');
+      expect(records.first.courseTitle, 'English 11');
+      expect(records.first.finalScore, 97);
+      expect(records.first.term, '2025 Term 2');
+      expect(records.last.courseCode, '27Q309PFSA6QAE');
+      expect(records.last.creditsEarned, 0.5);
+      expect(records.last.gpaPoints, 0, reason: 'single-star marks are not averaged');
+    });
+
     test('malformed input does not throw', () {
       expect(() => parser.parse(['', '   ', '!!!', '1 2 3']), returnsNormally);
     });
