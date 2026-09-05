@@ -90,7 +90,7 @@ void main() {
     );
 
     expect(result.transcript.courseCount, 2);
-    expect(result.transcript.terms.single.courses.last.title, 'PRECALCULUS');
+    expect(result.transcript.terms.single.courses.last.title, 'Precalculus');
     expect(jsonEncode(requestBody['messages']), contains('found 2 distinct'));
     expect(jsonEncode(requestBody['messages']), contains('PRECALCULUS'));
     expect(
