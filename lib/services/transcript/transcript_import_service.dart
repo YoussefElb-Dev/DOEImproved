@@ -17,6 +17,8 @@ enum TranscriptImportStage {
   parse,
   normalize,
   validate,
+  aiExtract,
+  aiValidate,
   review,
   persist,
   rerender,
@@ -86,7 +88,9 @@ class TranscriptImportDraft {
   });
 
   final NormalizedTranscript transcript;
-  final Uint8List sourceBytes;
+  /// Null when an already-saved transcript is being reprocessed from its
+  /// retained raw text. New imports always include the original PDF bytes.
+  final Uint8List? sourceBytes;
   final List<TranscriptPipelineLog> logs;
 }
 
@@ -120,7 +124,10 @@ class TranscriptImportService {
 
   static const int maximumBytes = 30 * 1024 * 1024;
 
-  Future<TranscriptImportDraft?> pickAndParse({TranscriptLogSink? onLog}) async {
+  Future<TranscriptImportDraft?> pickAndParse({
+    TranscriptLogSink? onLog,
+    bool allowIncompleteForAi = false,
+  }) async {
     final logs = <TranscriptPipelineLog>[];
     void log(TranscriptImportStage stage, String message) {
       final entry = TranscriptPipelineLog(
@@ -218,9 +225,16 @@ class TranscriptImportService {
 
       log(TranscriptImportStage.validate, 'Validating the normalized record.');
       if (!result.canSave) {
-        throw TranscriptImportException(
-          stage: TranscriptImportStage.validate,
-          userMessage: result.validationErrors.join(' '),
+        if (!allowIncompleteForAi) {
+          throw TranscriptImportException(
+            stage: TranscriptImportStage.validate,
+            userMessage: result.validationErrors.join(' '),
+          );
+        }
+        log(
+          TranscriptImportStage.validate,
+          'The local parser is incomplete; continuing to Kimi K3 with the '
+              'readable document text.',
         );
       }
       log(

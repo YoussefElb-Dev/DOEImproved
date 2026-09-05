@@ -25,6 +25,8 @@ class SettingsTab extends ConsumerWidget {
     final source = ref.watch(dataSourceProvider);
     final lastSynced = ref.watch(lastSyncedProvider);
     final palette = ref.watch(themeProvider);
+    final nim = ref.watch(nimPreferencesProvider);
+    final gradeLevel = ref.watch(effectiveGradeLevelProvider);
     final isLive = source == DataSource.live;
 
     return ScreenScaffold(
@@ -91,6 +93,10 @@ class SettingsTab extends ConsumerWidget {
                   ),
                 ),
               ],
+              if (gradeLevel != null && gradeLevel.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                StatusPill(label: 'GRADE $gradeLevel', color: p.accent),
+              ],
               const SizedBox(height: 10),
               Wrap(
                 alignment: WrapAlignment.center,
@@ -127,6 +133,49 @@ class SettingsTab extends ConsumerWidget {
                 MaterialPageRoute<void>(
                   builder: (_) => const ThemePickerScreen(),
                 ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+
+        const SectionLabel('Student & transcript AI'),
+        const SizedBox(height: 10),
+        _SettingsGroup(
+          rows: [
+            _SettingsRow(
+              icon: Icons.badge_rounded,
+              title: 'Current grade level',
+              subtitle: nim.gradeLevel == null
+                  ? 'Using the newest grade printed on your transcript'
+                  : 'Used for current progress and future AI imports',
+              value: gradeLevel ?? 'Set',
+              onTap: () => _editGradeLevel(context, ref, gradeLevel),
+            ),
+            _SettingsRow(
+              icon: Icons.key_rounded,
+              title: 'NVIDIA API key',
+              subtitle: 'Stored in the iOS Keychain and never written to '
+                  'transcript files or logs',
+              trailing: StatusPill(
+                label: nim.hasApiKey ? 'SAVED' : 'ADD KEY',
+                color: nim.hasApiKey ? p.gradeA : p.warning,
+              ),
+              onTap: () => _configureNim(context, ref, nim.hasApiKey),
+            ),
+            _SettingsRow(
+              icon: Icons.auto_awesome_rounded,
+              title: 'Kimi K3 transcript extraction',
+              subtitle: 'Sends extracted transcript text to NVIDIA during '
+                  'imports, then requires review before saving',
+              trailing: Switch.adaptive(
+                value: nim.enabled && nim.hasApiKey,
+                onChanged: (value) => _toggleNim(context, ref, value),
+              ),
+              onTap: () => _toggleNim(
+                context,
+                ref,
+                !(nim.enabled && nim.hasApiKey),
               ),
             ),
           ],
@@ -208,8 +257,10 @@ class SettingsTab extends ConsumerWidget {
               ),
               const SizedBox(height: 10),
               Text(
-                'Your session stays on this device in the iOS keychain. '
-                'Gradly has no server and sends your data nowhere.',
+                'Your session and NVIDIA key stay in the iOS Keychain. Portal '
+                'and archive data stay on this device. When transcript AI is '
+                'enabled, Gradly sends extracted transcript text to NVIDIA '
+                'only while importing or reprocessing a transcript.',
                 style: tt.bodySmall?.copyWith(
                   color: p.textTertiary,
                   height: 1.6,
@@ -250,6 +301,150 @@ class SettingsTab extends ConsumerWidget {
     if (confirmed != true) return;
     // AuthGate watches the session, so clearing it swaps back to sign-in.
     await ref.read(sessionProvider.notifier).signOut();
+  }
+
+  Future<void> _editGradeLevel(
+    BuildContext context,
+    WidgetRef ref,
+    String? current,
+  ) async {
+    final controller = TextEditingController(text: current ?? '');
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Current grade level'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          maxLength: 24,
+          decoration: const InputDecoration(
+            labelText: 'Grade',
+            hintText: '11, 12, College freshman…',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(''),
+            child: const Text('Use transcript'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (result == null) return;
+    await ref.read(nimPreferencesProvider.notifier).setGradeLevel(result);
+  }
+
+  Future<void> _configureNim(
+    BuildContext context,
+    WidgetRef ref,
+    bool hasKey,
+  ) async {
+    final controller = TextEditingController();
+    var hidden = true;
+    const remove = '__remove_nvidia_key__';
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(hasKey ? 'Replace NVIDIA API key' : 'Add NVIDIA API key'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Gradly uses moonshotai/kimi-k3 through NVIDIA NIM. During '
+                'transcript extraction, the document text can include your '
+                'name, student ID, birth date, grades, and school.',
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                autocorrect: false,
+                enableSuggestions: false,
+                obscureText: hidden,
+                decoration: InputDecoration(
+                  labelText: 'NVIDIA API key',
+                  hintText: 'nvapi-…',
+                  suffixIcon: IconButton(
+                    tooltip: hidden ? 'Show key' : 'Hide key',
+                    icon: Icon(hidden
+                        ? Icons.visibility_rounded
+                        : Icons.visibility_off_rounded),
+                    onPressed: () => setDialogState(() => hidden = !hidden),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            if (hasKey)
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(remove),
+                child: Text('Remove', style: TextStyle(color: context.palette.danger)),
+              ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(controller.text.trim()),
+              child: const Text('Save & enable'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    if (result == null) return;
+    try {
+      if (result == remove) {
+        await ref.read(nimPreferencesProvider.notifier).clearApiKey();
+      } else {
+        await ref.read(nimPreferencesProvider.notifier).saveApiKey(result);
+      }
+    } on FormatException catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${error.message}')),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not save the NVIDIA key: $error')),
+      );
+    }
+  }
+
+  Future<void> _toggleNim(
+    BuildContext context,
+    WidgetRef ref,
+    bool enabled,
+  ) async {
+    final current = ref.read(nimPreferencesProvider);
+    if (enabled && !current.hasApiKey) {
+      await _configureNim(context, ref, false);
+      return;
+    }
+    try {
+      await ref.read(nimPreferencesProvider.notifier).setEnabled(enabled);
+    } on FormatException catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('${error.message}')));
+    }
   }
 }
 

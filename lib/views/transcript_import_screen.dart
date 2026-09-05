@@ -31,6 +31,7 @@ class _TranscriptImportScreenState
     final p = context.palette;
     final tt = Theme.of(context).textTheme;
     final draft = state.draft?.transcript;
+    final nim = ref.watch(nimPreferencesProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Import transcript')),
@@ -60,8 +61,13 @@ class _TranscriptImportScreenState
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Gradly reads text-layer PDFs on your device. You will '
-                    'review and edit every field before anything is saved.',
+                    nim.enabled && nim.hasApiKey
+                        ? 'Gradly reads the PDF locally, then sends its extracted '
+                            'text to NVIDIA Kimi K3 for structured extraction. '
+                            'You review every field before anything is saved.'
+                        : 'Gradly reads text-layer PDFs on your device. Enable '
+                            'Kimi K3 in Settings for AI extraction. You review '
+                            'every field before anything is saved.',
                     textAlign: TextAlign.center,
                     style: tt.bodySmall?.copyWith(
                       color: p.textSecondary,
@@ -132,6 +138,10 @@ class _TranscriptImportScreenState
                       '· ${draft.warnings.length} parse notes',
                       style: tt.bodySmall?.copyWith(color: p.textTertiary),
                     ),
+                    if (draft.extraFields['aiModel'] != null) ...[
+                      const SizedBox(height: 10),
+                      StatusPill(label: 'KIMI K3 VERIFIED', color: p.gradeA),
+                    ],
                     const SizedBox(height: 14),
                     SizedBox(
                       width: double.infinity,
@@ -199,6 +209,8 @@ class _TranscriptImportScreenState
       TranscriptImportStage.parse,
       TranscriptImportStage.normalize,
       TranscriptImportStage.validate,
+      TranscriptImportStage.aiExtract,
+      TranscriptImportStage.aiValidate,
       TranscriptImportStage.review,
       TranscriptImportStage.persist,
       TranscriptImportStage.rerender,

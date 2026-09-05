@@ -17,9 +17,11 @@ import '../services/calculator_service.dart';
 import '../services/grade_data_service.dart';
 import '../services/portal_repository.dart';
 import '../services/transcript/normalized_transcript_parser.dart';
+import '../services/transcript/nim_transcript_service.dart';
 import '../services/transcript/transcript_analytics.dart';
 import '../services/transcript/transcript_import_service.dart';
 import 'archive_store.dart';
+import 'nim_settings_store.dart';
 import 'settings_store.dart';
 import 'transcript_store.dart';
 
@@ -48,6 +50,67 @@ final transcriptStoreProvider =
 final transcriptImportServiceProvider = Provider<TranscriptImportService>(
   (ref) => const TranscriptImportService(),
 );
+
+final nimTranscriptServiceProvider = Provider<NimTranscriptService>((ref) {
+  final service = NimTranscriptService();
+  ref.onDispose(service.dispose);
+  return service;
+});
+
+final nimSettingsStoreProvider = Provider<NimSettingsStore>(
+  (ref) => NimSettingsStore(),
+);
+
+final nimPreferencesProvider =
+    StateNotifierProvider<NimPreferencesNotifier, NimPreferences>((ref) {
+  return NimPreferencesNotifier(ref.read(nimSettingsStoreProvider));
+});
+
+class NimPreferencesNotifier extends StateNotifier<NimPreferences> {
+  NimPreferencesNotifier(this._store) : super(const NimPreferences()) {
+    _load();
+  }
+
+  final NimSettingsStore _store;
+
+  Future<void> _load() async {
+    try {
+      final loaded = await _store.load();
+      if (mounted) state = loaded;
+    } catch (error, stackTrace) {
+      debugPrint('NIM settings load failed: $error\n$stackTrace');
+    }
+  }
+
+  Future<void> saveApiKey(String key) async {
+    await _store.saveApiKey(key);
+    await _store.saveEnabled(true);
+    if (mounted) state = state.copyWith(hasApiKey: true, enabled: true);
+  }
+
+  Future<void> clearApiKey() async {
+    await _store.clearApiKey();
+    await _store.saveEnabled(false);
+    if (mounted) state = state.copyWith(hasApiKey: false, enabled: false);
+  }
+
+  Future<void> setEnabled(bool enabled) async {
+    if (enabled && !state.hasApiKey) {
+      throw const FormatException('Add an NVIDIA API key first.');
+    }
+    await _store.saveEnabled(enabled);
+    if (mounted) state = state.copyWith(enabled: enabled);
+  }
+
+  Future<void> setGradeLevel(String? gradeLevel) async {
+    await _store.saveGradeLevel(gradeLevel);
+    if (!mounted) return;
+    final clean = gradeLevel?.trim();
+    state = clean == null || clean.isEmpty
+        ? state.copyWith(clearGradeLevel: true)
+        : state.copyWith(gradeLevel: clean);
+  }
+}
 
 final transcriptAnalyticsProvider = Provider<TranscriptAnalytics>(
   (ref) => const TranscriptAnalytics(),
@@ -246,6 +309,20 @@ final transcriptRecordsProvider =
 
   if (importedExistingDocument) records = await transcriptStore.list();
   return records;
+});
+
+/// The student's current app context. The setting wins; otherwise Gradly uses
+/// the newest grade printed on a saved transcript. It never rewrites that
+/// historical field inside the transcript itself.
+final effectiveGradeLevelProvider = Provider<String?>((ref) {
+  final override = ref.watch(nimPreferencesProvider).gradeLevel?.trim();
+  if (override != null && override.isNotEmpty) return override;
+  final records = ref.watch(transcriptRecordsProvider).valueOrNull ?? const [];
+  for (final record in records) {
+    final printed = record.student.gradeLevel?.trim();
+    if (printed != null && printed.isNotEmpty) return printed;
+  }
+  return null;
 });
 
 final _portalTranscriptProvider = Provider<List<TranscriptRecord>>(
@@ -462,7 +539,7 @@ class DocumentSyncNotifier
     final store = _ref.read(archiveStoreProvider);
 
     state = await AsyncValue.guard(() async {
-      final result = await work(
+      var result = await work(
         _ref.read(documentServiceProvider),
         cookies,
         store,
@@ -486,6 +563,28 @@ class DocumentSyncNotifier
           await transcriptStore.save(transcript);
         }
         _ref.invalidate(transcriptRecordsProvider);
+      }
+
+      // A downloaded PDF is archived immediately, but AI-produced academic
+      // data still waits for review. A locally unrecognized format remains a
+      // valid AI candidate as long as its PDF text could be read.
+      final preferences = _ref.read(nimPreferencesProvider);
+      final candidate = result.normalizedTranscripts.isNotEmpty
+          ? result.normalizedTranscripts.first
+          : result.aiCandidates.isEmpty
+              ? null
+              : result.aiCandidates.first;
+      if (candidate != null &&
+          preferences.enabled &&
+          preferences.hasApiKey) {
+        final ready = await _ref
+            .read(transcriptImportProvider.notifier)
+            .reprocess(candidate);
+        final aiState = _ref.read(transcriptImportProvider);
+        result = result.copyWith(
+          aiEnhancedCount: ready ? 1 : 0,
+          aiWarning: ready ? null : aiState.error,
+        );
       }
       return result;
     });
@@ -548,7 +647,9 @@ class TranscriptImportNotifier extends StateNotifier<TranscriptImportUiState> {
       busy: true,
     );
     try {
+      final preferences = _ref.read(nimPreferencesProvider);
       final draft = await _ref.read(transcriptImportServiceProvider).pickAndParse(
+        allowIncompleteForAi: preferences.enabled && preferences.hasApiKey,
         onLog: (entry) {
           if (!mounted) return;
           state = state.copyWith(
@@ -565,12 +666,16 @@ class TranscriptImportNotifier extends StateNotifier<TranscriptImportUiState> {
         );
         return;
       }
-      state = state.copyWith(
-        stage: TranscriptImportStage.review,
-        draft: draft,
-        busy: false,
-        clearError: true,
-      );
+      if (preferences.enabled && preferences.hasApiKey) {
+        await _enhanceWithKimi(draft);
+      } else {
+        state = state.copyWith(
+          stage: TranscriptImportStage.review,
+          draft: draft,
+          busy: false,
+          clearError: true,
+        );
+      }
     } on TranscriptImportException catch (error, stackTrace) {
       debugPrint('Transcript import UI failed: $error\n$stackTrace');
       if (!mounted) return;
@@ -587,6 +692,107 @@ class TranscriptImportNotifier extends StateNotifier<TranscriptImportUiState> {
           ),
         ],
       );
+    }
+  }
+
+  /// Runs an already-saved normalized transcript back through Kimi K3. The
+  /// returned result is still a draft and must go through the review screen.
+  Future<bool> reprocess(NormalizedTranscript transcript) async {
+    if (state.busy) return false;
+    final preferences = _ref.read(nimPreferencesProvider);
+    if (!preferences.enabled || !preferences.hasApiKey) {
+      state = TranscriptImportUiState(
+        stage: TranscriptImportStage.review,
+        draft: TranscriptImportDraft(
+          transcript: transcript,
+          sourceBytes: null,
+          logs: const [],
+        ),
+        error: 'Set up and enable Kimi K3 in Settings first.',
+      );
+      return false;
+    }
+    final draft = TranscriptImportDraft(
+      transcript: transcript,
+      sourceBytes: null,
+      logs: const [],
+    );
+    state = TranscriptImportUiState(
+      stage: TranscriptImportStage.aiExtract,
+      draft: draft,
+      busy: true,
+    );
+    return _enhanceWithKimi(draft);
+  }
+
+  Future<bool> _enhanceWithKimi(TranscriptImportDraft localDraft) async {
+    _append(
+      TranscriptImportStage.aiExtract,
+      'Sending the extracted transcript text to NVIDIA Kimi K3.',
+      busy: true,
+    );
+    try {
+      final apiKey = await _ref.read(nimSettingsStoreProvider).readApiKey();
+      if (apiKey == null || apiKey.isEmpty) {
+        throw const NimTranscriptException(
+          'No NVIDIA API key is saved. Add one in Settings.',
+        );
+      }
+      final result = await _ref.read(nimTranscriptServiceProvider).extract(
+            apiKey: apiKey,
+            localDraft: localDraft.transcript,
+            rawText: localDraft.transcript.rawText,
+            currentGradeLevel: _ref.read(effectiveGradeLevelProvider),
+          );
+      _append(
+        TranscriptImportStage.aiValidate,
+        'Validated ${result.transcript.courseCount} courses from '
+            '${NimTranscriptService.model}.',
+      );
+      final aiDraft = TranscriptImportDraft(
+        transcript: result.transcript,
+        sourceBytes: localDraft.sourceBytes,
+        logs: state.logs,
+      );
+      if (!mounted) return false;
+      state = state.copyWith(
+        stage: TranscriptImportStage.review,
+        draft: aiDraft,
+        busy: false,
+        clearError: true,
+      );
+      return true;
+    } on NimTranscriptException catch (error, stackTrace) {
+      debugPrint('Kimi transcript extraction failed: $error\n$stackTrace');
+      _append(
+        TranscriptImportStage.failed,
+        error.userMessage,
+        busy: false,
+        error: '${error.userMessage} The local extraction is ready to review.',
+      );
+      if (!mounted) return false;
+      state = state.copyWith(
+        stage: TranscriptImportStage.review,
+        draft: localDraft,
+        busy: false,
+      );
+      return false;
+    } catch (error, stackTrace) {
+      debugPrint('Kimi transcript extraction failed: $error\n$stackTrace');
+      _append(
+        TranscriptImportStage.failed,
+        'Kimi K3 extraction failed: $error',
+        busy: false,
+        error: 'Kimi K3 extraction failed. The local extraction is ready '
+            'to review.',
+      );
+      if (!mounted) return false;
+      state = state.copyWith(
+        stage: TranscriptImportStage.review,
+        draft: localDraft,
+        busy: false,
+      );
+      return false;
     }
   }
 

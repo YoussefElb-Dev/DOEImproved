@@ -19,6 +19,9 @@ class DocumentSyncResult {
   final List<SavedDocument> saved;
   final List<TranscriptRecord> transcript;
   final List<NormalizedTranscript> normalizedTranscripts;
+  final List<NormalizedTranscript> aiCandidates;
+  final int aiEnhancedCount;
+  final String? aiWarning;
   final String? failure;
 
   /// The DOE document site wants its own sign-in.
@@ -32,9 +35,31 @@ class DocumentSyncResult {
     this.saved = const [],
     this.transcript = const [],
     this.normalizedTranscripts = const [],
+    this.aiCandidates = const [],
+    this.aiEnhancedCount = 0,
+    this.aiWarning,
     this.failure,
     this.needsSignIn = false,
   });
+
+  DocumentSyncResult copyWith({
+    List<NormalizedTranscript>? normalizedTranscripts,
+    List<NormalizedTranscript>? aiCandidates,
+    int? aiEnhancedCount,
+    String? aiWarning,
+  }) {
+    return DocumentSyncResult(
+      saved: saved,
+      transcript: transcript,
+      normalizedTranscripts:
+          normalizedTranscripts ?? this.normalizedTranscripts,
+      aiCandidates: aiCandidates ?? this.aiCandidates,
+      aiEnhancedCount: aiEnhancedCount ?? this.aiEnhancedCount,
+      aiWarning: aiWarning ?? this.aiWarning,
+      failure: failure,
+      needsSignIn: needsSignIn,
+    );
+  }
 
   bool get isEmpty => saved.isEmpty && transcript.isEmpty;
 }
@@ -148,6 +173,7 @@ class DocumentService {
     final saved = <SavedDocument>[];
     final transcript = <TranscriptRecord>[];
     final normalizedTranscripts = <NormalizedTranscript>[];
+    final aiCandidates = <NormalizedTranscript>[];
     var rejected = 0;
     final failures = <String>[];
 
@@ -192,6 +218,11 @@ class DocumentService {
           );
           if (parsed.canSave) {
             normalizedTranscripts.add(parsed.transcript);
+          } else {
+            // Keep an in-memory draft so an enabled AI extractor can recover
+            // formats the conservative local parser does not understand. The
+            // original PDF and text have already been archived above.
+            aiCandidates.add(parsed.transcript);
           }
         }
       } catch (error) {
@@ -213,6 +244,7 @@ class DocumentService {
       saved: saved,
       transcript: _deduplicate(transcript),
       normalizedTranscripts: normalizedTranscripts,
+      aiCandidates: aiCandidates,
     );
   }
 

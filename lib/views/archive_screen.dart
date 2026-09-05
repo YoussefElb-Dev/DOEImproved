@@ -10,6 +10,7 @@ import '../storage/state_providers.dart';
 import 'document_viewer_screen.dart';
 import 'documents_browser_screen.dart';
 import 'transcript_library_screen.dart';
+import 'transcript_review_screen.dart';
 
 /// Everything the app has kept: the DOE's own PDFs, and a dated record of the
 /// grades as they stood each day.
@@ -251,9 +252,16 @@ class _DownloadCard extends ConsumerWidget {
               0,
               (sum, record) => sum + record.courseCount,
             )} taken classes to Grades',
+          if (result.aiEnhancedCount > 0)
+            'prepared a Kimi K3 result for review',
         ];
         message = '${parts.join(' and ')}.';
-        messageColour = p.gradeA;
+        if (result.aiWarning != null) {
+          message = '$message ${result.aiWarning}';
+          messageColour = p.warning;
+        } else {
+          messageColour = p.gradeA;
+        }
       }
     }
 
@@ -301,6 +309,21 @@ class _DownloadCard extends ConsumerWidget {
             Text(
               message,
               style: tt.bodySmall?.copyWith(color: messageColour, height: 1.4),
+            ),
+          ],
+          if ((result?.aiEnhancedCount ?? 0) > 0) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const TranscriptReviewScreen(),
+                  ),
+                ),
+                icon: const Icon(Icons.fact_check_rounded),
+                label: const Text('Review Kimi K3 extraction'),
+              ),
             ),
           ],
         ],
@@ -631,4 +654,12 @@ Future<void> openDocuments(BuildContext context, WidgetRef ref) async {
     return;
   }
   await ref.read(documentSyncProvider.notifier).saveFound(result.links);
+  final synced = ref.read(documentSyncProvider).valueOrNull;
+  if (context.mounted && (synced?.aiEnhancedCount ?? 0) > 0) {
+    await navigator.push(
+      MaterialPageRoute<void>(
+        builder: (_) => const TranscriptReviewScreen(),
+      ),
+    );
+  }
 }

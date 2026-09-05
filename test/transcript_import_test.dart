@@ -267,6 +267,24 @@ Page 1 of 1 2026 Copyright NYC Department Of Education 10:00:44 PM July 17, 2026
         ),
       );
     });
+
+    test('lets an enabled AI stage recover an unfamiliar text transcript',
+        () async {
+      final service = TranscriptImportService(
+        source: _FakeSource(_pdf('UNFAMILIAR SCHOOL RECORD FORMAT\nROW X Y Z')),
+      );
+      final draft = await service.pickAndParse(allowIncompleteForAi: true);
+
+      expect(draft, isNotNull);
+      expect(draft!.transcript.rawText, contains('UNFAMILIAR SCHOOL'));
+      expect(draft.transcript.courseCount, 0);
+      expect(
+        draft.logs.any(
+          (entry) => entry.message.contains('continuing to Kimi K3'),
+        ),
+        isTrue,
+      );
+    });
   });
 
   group('local transcript store', () {

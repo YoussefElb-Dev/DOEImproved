@@ -12,6 +12,7 @@ import '../services/analytics_service.dart';
 import '../services/transcript/transcript_analytics.dart';
 import '../storage/state_providers.dart';
 import 'transcript_import_screen.dart';
+import 'transcript_review_screen.dart';
 import 'widgets/charts.dart';
 
 class TranscriptLibraryScreen extends ConsumerWidget {
@@ -215,6 +216,16 @@ class _TranscriptCard extends ConsumerWidget {
                   '· ${shortDate(record.importedAt)}',
                   style: tt.bodySmall?.copyWith(color: p.textTertiary),
                 ),
+                if (record.extraFields['aiModel'] != null) ...[
+                  const SizedBox(height: 5),
+                  Text(
+                    'Verified with Kimi K3',
+                    style: tt.labelSmall?.copyWith(
+                      color: p.gradeA,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -247,6 +258,7 @@ class _TranscriptDetailScreenState
   final _remaining = TextEditingController(text: '24');
   final _target = TextEditingController(text: '3.5');
   WhatIfResult? _whatIf;
+  bool _aiBusy = false;
 
   @override
   void dispose() {
@@ -278,9 +290,14 @@ class _TranscriptDetailScreenState
         title: const Text('Transcript'),
         actions: [
           PopupMenuButton<String>(
-            tooltip: 'Export',
-            onSelected: _export,
+            tooltip: 'Transcript actions',
+            onSelected: _action,
             itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'ai',
+                child: Text('Improve with Kimi K3'),
+              ),
+              PopupMenuDivider(),
               PopupMenuItem(value: 'json', child: Text('Export JSON')),
               PopupMenuItem(value: 'csv', child: Text('Export CSV')),
             ],
@@ -291,6 +308,15 @@ class _TranscriptDetailScreenState
         child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 6, 18, 36),
           children: [
+            if (_aiBusy) ...[
+              const LinearProgressIndicator(),
+              const SizedBox(height: 14),
+              Text(
+                'Kimi K3 is extracting and validating every transcript row…',
+                style: tt.bodySmall?.copyWith(color: p.textSecondary),
+              ),
+              const SizedBox(height: 14),
+            ],
             Text(
               record.institution.name ?? 'Unknown institution',
               style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w800),
@@ -299,6 +325,13 @@ class _TranscriptDetailScreenState
               record.student.name ?? 'Student name not printed',
               style: tt.bodySmall?.copyWith(color: p.textSecondary),
             ),
+            if (record.extraFields['aiModel'] != null) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: StatusPill(label: 'KIMI K3 VERIFIED', color: p.gradeA),
+              ),
+            ],
             const SizedBox(height: 18),
             SurfaceCard(
               fill: p.accent.withValues(alpha: .08),
@@ -504,6 +537,36 @@ class _TranscriptDetailScreenState
         targetGpa: target,
       );
     });
+  }
+
+  Future<void> _action(String action) async {
+    if (action == 'ai') {
+      await _reprocessWithKimi();
+    } else {
+      await _export(action);
+    }
+  }
+
+  Future<void> _reprocessWithKimi() async {
+    if (_aiBusy) return;
+    setState(() => _aiBusy = true);
+    final ready = await ref
+        .read(transcriptImportProvider.notifier)
+        .reprocess(widget.transcript);
+    if (!mounted) return;
+    setState(() => _aiBusy = false);
+    final state = ref.read(transcriptImportProvider);
+    if (!ready) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(state.error ?? 'Kimi K3 could not run.')),
+      );
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const TranscriptReviewScreen(),
+      ),
+    );
   }
 
   Future<void> _export(String format) async {

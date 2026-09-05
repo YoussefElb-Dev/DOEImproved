@@ -51,9 +51,11 @@ class GradesTab extends ConsumerWidget {
     final top = ref.watch(topPerformerProvider);
     final historyState = ref.watch(academicHistoryProvider);
     final history = historyState.valueOrNull;
+    final gradeLevel = ref.watch(effectiveGradeLevelProvider);
 
     final subtitleParts = [
       if (terms.isNotEmpty) terms.last.term,
+      if (gradeLevel != null && gradeLevel.isNotEmpty) 'Grade $gradeLevel',
       if (snapshot.profile.name.isNotEmpty) snapshot.profile.name,
     ];
 
@@ -74,6 +76,7 @@ class GradesTab extends ConsumerWidget {
           takenCourseCount: history?.classes.length ?? 0,
           topPerformer: top,
           terms: terms,
+          gradeLevel: gradeLevel,
         ),
         const SizedBox(height: 22),
         SectionLabel(
@@ -422,6 +425,7 @@ class _OverviewCard extends StatelessWidget {
   final int takenCourseCount;
   final Course? topPerformer;
   final List<TermGpa> terms;
+  final String? gradeLevel;
 
   const _OverviewCard({
     required this.currentGpa,
@@ -432,6 +436,7 @@ class _OverviewCard extends StatelessWidget {
     required this.takenCourseCount,
     required this.topPerformer,
     required this.terms,
+    required this.gradeLevel,
   });
 
   @override
@@ -472,6 +477,8 @@ class _OverviewCard extends StatelessWidget {
                 ),
                 _StatLine(label: 'Current', value: '$courseCount'),
                 _StatLine(label: 'Taken', value: '$takenCourseCount'),
+                if (gradeLevel != null && gradeLevel!.isNotEmpty)
+                  _StatLine(label: 'Grade', value: gradeLevel!),
                 if (topPerformer != null) ...[
                   const SizedBox(height: 6),
                   Align(

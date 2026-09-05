@@ -301,7 +301,7 @@ class TranscriptStore {
       ...?newJson['terms'] as List<dynamic>?,
     ]) {
       if (value is! Map<String, dynamic>) continue;
-      final key = '${value['label'] ?? ''}'.trim().toLowerCase();
+      final key = _termIdentity(value);
       final prior = terms[key];
       terms[key] = prior == null ? value : _mergeTerm(prior, value);
     }
@@ -317,23 +317,75 @@ class TranscriptStore {
     Map<String, dynamic> newTerm,
   ) {
     final merged = _mergeMaps(oldTerm, newTerm);
-    final courses = <String, Map<String, dynamic>>{};
+    final courses = <Map<String, dynamic>>[];
     for (final value in <dynamic>[
       ...?oldTerm['courses'] as List<dynamic>?,
       ...?newTerm['courses'] as List<dynamic>?,
     ]) {
       if (value is! Map<String, dynamic>) continue;
-      final key = <Object?>[
-        value['subjectCode'],
-        value['courseNumber'],
-        value['section'],
-      ].map((part) => '${part ?? ''}'.trim().toLowerCase()).join('|');
-      final prior = courses[key];
-      courses[key] = prior == null ? value : _mergeMaps(prior, value);
+      final index = courses.indexWhere((prior) => _sameCourse(prior, value));
+      if (index < 0) {
+        courses.add(value);
+      } else {
+        courses[index] = _mergeMaps(courses[index], value);
+      }
     }
-    merged['courses'] = courses.values.toList();
+    merged['courses'] = courses;
     return merged;
   }
+
+  static String _termIdentity(Map<String, dynamic> term) {
+    final label = _normalized('${term['label'] ?? ''}');
+    final year = RegExp(r'(19|20)\d{2}').firstMatch(label)?.group(0) ??
+        '${term['year'] ?? ''}';
+    final part = RegExp(r'(?:term|semester|quarter|q|mp)(\d{1,2})')
+            .firstMatch(label)
+            ?.group(1) ??
+        (label.contains('fall')
+            ? 'fall'
+            : label.contains('spring')
+                ? 'spring'
+                : label.contains('summer')
+                    ? 'summer'
+                    : label.contains('winter')
+                        ? 'winter'
+                        : label);
+    return '$year|$part';
+  }
+
+  static bool _sameCourse(
+    Map<String, dynamic> a,
+    Map<String, dynamic> b,
+  ) {
+    final rawA = _normalized('${a['rawLine'] ?? ''}');
+    final rawB = _normalized('${b['rawLine'] ?? ''}');
+    if (rawA.isNotEmpty && rawA == rawB) return true;
+
+    final codeA = _normalized(
+      '${a['subjectCode'] ?? ''}${a['courseNumber'] ?? ''}',
+    );
+    final codeB = _normalized(
+      '${b['subjectCode'] ?? ''}${b['courseNumber'] ?? ''}',
+    );
+    if (codeA.length >= 4 &&
+        codeB.length >= 4 &&
+        (codeA == codeB || codeA.endsWith(codeB) || codeB.endsWith(codeA))) {
+      return true;
+    }
+
+    final titleA = _normalized('${a['title'] ?? ''}');
+    final titleB = _normalized('${b['title'] ?? ''}');
+    final gradeA = '${a['numericGrade'] ?? a['letterGrade'] ?? ''}';
+    final gradeB = '${b['numericGrade'] ?? b['letterGrade'] ?? ''}';
+    return titleA.length >= 5 &&
+        titleB.length >= 5 &&
+        (titleA == titleB || titleA.contains(titleB) || titleB.contains(titleA)) &&
+        gradeA == gradeB;
+  }
+
+  static String _normalized(String value) => value
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]+'), '');
 
   static Map<String, dynamic> _mergeMaps(
     Map<String, dynamic> oldMap,

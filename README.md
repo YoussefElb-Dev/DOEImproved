@@ -6,8 +6,9 @@ renders live grades, schedule, upcoming work and transcript — with **What-If**
 projections on top.
 
 > Student-built. **Not affiliated with the NYC DOE.** There is no Gradly server:
-> your session lives in the iOS keychain on your device, and the app talks only to
-> `teachhub.schools.nyc`.
+> your session lives in the iOS keychain and your archive stays on your device.
+> If you enable transcript AI, Gradly sends extracted transcript text directly
+> from the app to NVIDIA NIM with your own API key.
 
 ## Features
 
@@ -53,6 +54,15 @@ projections on top.
   feed the main Grades and Analytics tabs, using printed cumulative credits and
   averages and showing every completed course, score, credit value, and term.
   Existing downloaded PDFs are migrated automatically from their saved text.
+- **Optional Kimi K3 extraction** — uses NVIDIA NIM model
+  `moonshotai/kimi-k3` through the OpenAI-compatible
+  `https://integrate.api.nvidia.com/v1/chat/completions` endpoint. The response
+  is constrained to Gradly's transcript schema, checked against local course
+  rows, sanity-validated, and shown for review before it is saved. If NVIDIA is
+  unavailable, the on-device result remains usable.
+- **Current grade setting** — accepts standard or custom labels and immediately
+  updates the Grades context. The setting is passed to future AI extractions as
+  current context without changing historical grades printed on transcripts.
 
 ## How the parser adapts
 
@@ -91,6 +101,20 @@ unweighted, because inventing an AP bonus would misstate a real student's GPA.
 | HTTP + parsing | `http`, `html` |
 | Typography | `google_fonts` (Inter) |
 | Preferences / files | `shared_preferences`, `path_provider`, `file_picker` |
+
+## NVIDIA NIM setup
+
+Open **Settings → Student & transcript AI → NVIDIA API key**, enter an
+`nvapi-…` key, and choose **Save & enable**. Gradly stores the key in the iOS
+Keychain; it is never included in source code, transcript JSON, exports, or
+debug logs. New manual imports and transcripts downloaded from the DOE use Kimi
+K3 automatically while the toggle is enabled. Existing records can be opened
+from the transcript library and reprocessed from the transcript actions menu.
+
+The app sends extracted document text rather than the PDF file container. This
+keeps the request compatible with the chat-completions API and still includes
+all text-layer transcript content. Image-only scans still require OCR before
+they can be processed.
 
 ## Project structure
 

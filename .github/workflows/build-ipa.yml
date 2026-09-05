@@ -44,6 +44,14 @@ jobs:
       - name: Pub get
         run: flutter pub get
 
+      - name: Refuse committed NVIDIA credentials
+        run: |
+          set -euo pipefail
+          if git grep -nE 'nvapi-[A-Za-z0-9_-]{20,}' -- .; then
+            echo "An NVIDIA API key was committed. Remove and rotate it." >&2
+            exit 1
+          fi
+
       # The Xcode project is generated rather than committed, so the repo stays
       # free of a 20k-line pbxproj. Anything hand-written lives in ios_native/
       # and is copied over the generated template in the next step.
