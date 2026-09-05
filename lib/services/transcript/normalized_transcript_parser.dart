@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 import '../../models/normalized_transcript.dart';
-import '../grade_scale.dart';
 import '../parsing/values.dart';
 
 class TranscriptParseResult {
@@ -671,7 +670,7 @@ class NormalizedTranscriptParser {
   static String? _nycValue(List<String> lines, String label) {
     for (var i = 0; i < lines.length; i++) {
       final match = RegExp(
-        '^${RegExp.escape(label)}\\s*:\\s*(.+)$',
+        '^${RegExp.escape(label)}\\s*:\\s*(.+)\$',
         caseSensitive: false,
       ).firstMatch(lines[i]);
       if (match == null) continue;
@@ -688,7 +687,7 @@ class NormalizedTranscriptParser {
 
   static String? _nycInlineValue(String text, String label) {
     final match = RegExp(
-      '${RegExp.escape(label)}\\s*:\\s*([^\\n:]+?)(?=[A-Za-z ]+\\s*:|\\n|$)',
+      '${RegExp.escape(label)}\\s*:\\s*([^\\n:]+?)(?=[A-Za-z ]+\\s*:|\\n|\$)',
       caseSensitive: false,
     ).firstMatch(text);
     return _clean(match?.group(1));
