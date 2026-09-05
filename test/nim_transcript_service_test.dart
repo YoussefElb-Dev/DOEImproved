@@ -49,7 +49,7 @@ void main() {
     expect(result.transcript.courseCount, 2);
     expect(result.transcript.extraFields['aiModel'], 'moonshotai/kimi-k3');
     expect(result.transcript.extraFields['currentAppGradeLevel'], '12');
-    expect(result.transcript.rawText, local.rawText);
+    expect(result.transcript.rawText, local.rawText.trim());
     expect(result.promptTokens, 1200);
   });
 
