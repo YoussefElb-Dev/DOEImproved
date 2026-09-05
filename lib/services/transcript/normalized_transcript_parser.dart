@@ -266,8 +266,15 @@ class NormalizedTranscriptParser {
     var gradeIndex = -1;
     String? letter;
     double? numeric;
-    for (var i = tokens.length - 1; i >= 0; i--) {
+    // A grade is the first grade-shaped token whose remaining columns are all
+    // numeric. Scanning from the right mistakes an integer quality-points
+    // column (for example 12) for a numeric grade.
+    for (var i = 1; i < tokens.length; i++) {
       final token = tokens[i].replaceAll(RegExp(r'[,;]$'), '');
+      final numericSuffix = tokens
+          .skip(i + 1)
+          .every((value) => _plainNumber(value) != null);
+      if (!numericSuffix) continue;
       if (_grade.hasMatch(token)) {
         gradeIndex = i;
         letter = token.toUpperCase();
