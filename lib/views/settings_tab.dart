@@ -8,6 +8,7 @@ import '../core/theme/ui_kit.dart';
 import '../models/portal_snapshot.dart';
 import '../storage/state_providers.dart';
 import 'archive_screen.dart';
+import 'transcript_library_screen.dart';
 import 'theme_picker_screen.dart';
 import 'widgets/app_shell.dart';
 
@@ -158,6 +159,16 @@ class SettingsTab extends ConsumerWidget {
                   : 'Last updated ${relativeTime(lastSynced)} · auto every '
                       '${kAutoRefreshInterval.inMinutes} min',
               onTap: () => ref.read(portalProvider.notifier).refresh(),
+            ),
+            _SettingsRow(
+              icon: Icons.school_rounded,
+              title: 'Transcript library',
+              subtitle: 'Imported transcripts, GPA checks, trends and exports',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const TranscriptLibraryScreen(),
+                ),
+              ),
             ),
             _SettingsRow(
               icon: Icons.inventory_2_rounded,

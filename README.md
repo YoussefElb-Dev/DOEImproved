@@ -41,6 +41,12 @@ projections on top.
 - **Real grade scales** — NYC numeric marks where 65 passes, letter grades with +/-,
   and the non-numeric codes transcripts carry (P, NS, INC, W, CR, NC, AUD, EX)
 
+- **Private transcript library** — imports text-layer PDFs through a visible,
+  logged pipeline; provides editable review before save; preserves the original
+  PDF and extracted text; deduplicates re-imports; merges multiple institutions
+  into one view; audits GPA; and exports JSON or CSV. See
+  [the transcript import notes](docs/transcript-import.md).
+
 ## How the parser adapts
 
 Schools run different portal software, name their columns differently, and change

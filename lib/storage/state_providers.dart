@@ -8,14 +8,18 @@ import '../models/archive_models.dart';
 import '../models/grade_models.dart';
 import '../models/portal_snapshot.dart';
 import '../models/schedule_models.dart';
+import '../models/normalized_transcript.dart';
 import '../services/analytics_service.dart';
 import '../services/auth_webview_service.dart';
 import '../services/document_service.dart';
 import '../services/calculator_service.dart';
 import '../services/grade_data_service.dart';
 import '../services/portal_repository.dart';
+import '../services/transcript/transcript_analytics.dart';
+import '../services/transcript/transcript_import_service.dart';
 import 'archive_store.dart';
 import 'settings_store.dart';
+import 'transcript_store.dart';
 
 // ─────────────────────────── services ───────────────────────────
 
@@ -35,6 +39,17 @@ final calculatorProvider = Provider<CalculatorService>(
 
 /// On-device storage: the offline cache, the dated archive, and the PDFs.
 final archiveStoreProvider = Provider<ArchiveStore>((ref) => ArchiveStore());
+
+final transcriptStoreProvider =
+    Provider<TranscriptStore>((ref) => TranscriptStore());
+
+final transcriptImportServiceProvider = Provider<TranscriptImportService>(
+  (ref) => const TranscriptImportService(),
+);
+
+final transcriptAnalyticsProvider = Provider<TranscriptAnalytics>(
+  (ref) => const TranscriptAnalytics(),
+);
 
 final documentServiceProvider = Provider<DocumentService>((ref) {
   final service = DocumentService();
@@ -401,6 +416,171 @@ class DocumentSyncNotifier
 }
 
 // ─────────────────────────── lifecycle ───────────────────────────
+
+/// Reviewed, versioned transcript files stored privately on the device.
+final transcriptRecordsProvider =
+    FutureProvider<List<NormalizedTranscript>>((ref) async {
+  return ref.read(transcriptStoreProvider).list();
+});
+
+class TranscriptImportUiState {
+  const TranscriptImportUiState({
+    this.stage = TranscriptImportStage.idle,
+    this.draft,
+    this.saved,
+    this.logs = const [],
+    this.error,
+    this.busy = false,
+  });
+
+  final TranscriptImportStage stage;
+  final TranscriptImportDraft? draft;
+  final NormalizedTranscript? saved;
+  final List<TranscriptPipelineLog> logs;
+  final String? error;
+  final bool busy;
+
+  TranscriptImportUiState copyWith({
+    TranscriptImportStage? stage,
+    TranscriptImportDraft? draft,
+    NormalizedTranscript? saved,
+    List<TranscriptPipelineLog>? logs,
+    String? error,
+    bool clearError = false,
+    bool? busy,
+  }) {
+    return TranscriptImportUiState(
+      stage: stage ?? this.stage,
+      draft: draft ?? this.draft,
+      saved: saved ?? this.saved,
+      logs: logs ?? this.logs,
+      error: clearError ? null : error ?? this.error,
+      busy: busy ?? this.busy,
+    );
+  }
+}
+
+final transcriptImportProvider = StateNotifierProvider<TranscriptImportNotifier,
+    TranscriptImportUiState>(TranscriptImportNotifier.new);
+
+class TranscriptImportNotifier extends StateNotifier<TranscriptImportUiState> {
+  TranscriptImportNotifier(this._ref) : super(const TranscriptImportUiState());
+
+  final Ref _ref;
+
+  Future<void> pick() async {
+    if (state.busy) return;
+    state = const TranscriptImportUiState(
+      stage: TranscriptImportStage.picker,
+      busy: true,
+    );
+    try {
+      final draft = await _ref.read(transcriptImportServiceProvider).pickAndParse(
+        onLog: (entry) {
+          if (!mounted) return;
+          state = state.copyWith(
+            stage: entry.stage,
+            logs: [...state.logs, entry],
+          );
+        },
+      );
+      if (!mounted) return;
+      if (draft == null) {
+        state = state.copyWith(
+          stage: TranscriptImportStage.cancelled,
+          busy: false,
+        );
+        return;
+      }
+      state = state.copyWith(
+        stage: TranscriptImportStage.review,
+        draft: draft,
+        busy: false,
+        clearError: true,
+      );
+    } on TranscriptImportException catch (error, stackTrace) {
+      debugPrint('Transcript import UI failed: $error\n$stackTrace');
+      if (!mounted) return;
+      state = state.copyWith(
+        stage: TranscriptImportStage.failed,
+        error: error.userMessage,
+        busy: false,
+        logs: [
+          ...state.logs,
+          TranscriptPipelineLog(
+            stage: TranscriptImportStage.failed,
+            message: error.userMessage,
+            time: DateTime.now(),
+          ),
+        ],
+      );
+    }
+  }
+
+  Future<NormalizedTranscript?> confirm(NormalizedTranscript edited) async {
+    final draft = state.draft;
+    if (draft == null || state.busy) return null;
+    _append(
+      TranscriptImportStage.persist,
+      'Saving the reviewed record and original PDF on this device.',
+      busy: true,
+    );
+    try {
+      final saved = await _ref.read(transcriptStoreProvider).save(
+            edited,
+            sourceBytes: draft.sourceBytes,
+          );
+      _ref.invalidate(transcriptRecordsProvider);
+      _append(
+        TranscriptImportStage.rerender,
+        'Reloading the transcript dashboard from saved storage.',
+      );
+      await _ref.read(transcriptRecordsProvider.future);
+      _append(
+        TranscriptImportStage.complete,
+        'Transcript saved and displayed successfully.',
+        busy: false,
+        saved: saved,
+      );
+      return saved;
+    } on TranscriptStorageException catch (error, stackTrace) {
+      debugPrint('Transcript persistence failed: $error\n$stackTrace');
+      _append(
+        TranscriptImportStage.failed,
+        error.message,
+        busy: false,
+        error: error.message,
+      );
+      return null;
+    }
+  }
+
+  void reset() => state = const TranscriptImportUiState();
+
+  void _append(
+    TranscriptImportStage stage,
+    String message, {
+    bool? busy,
+    String? error,
+    NormalizedTranscript? saved,
+  }) {
+    if (!mounted) return;
+    final entry = TranscriptPipelineLog(
+      stage: stage,
+      message: message,
+      time: DateTime.now(),
+    );
+    debugPrint('[transcript:${stage.name}] $message');
+    state = state.copyWith(
+      stage: stage,
+      logs: [...state.logs, entry],
+      busy: busy,
+      error: error,
+      clearError: error == null,
+      saved: saved,
+    );
+  }
+}
 
 /// Refreshes the portal when the app returns to the foreground, so a student
 /// who reopens the app after class sees current data without pulling.

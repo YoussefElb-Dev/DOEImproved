@@ -9,6 +9,7 @@ import '../storage/archive_store.dart';
 import '../storage/state_providers.dart';
 import 'document_viewer_screen.dart';
 import 'documents_browser_screen.dart';
+import 'transcript_library_screen.dart';
 
 /// Everything the app has kept: the DOE's own PDFs, and a dated record of the
 /// grades as they stood each day.
@@ -66,6 +67,41 @@ class ArchiveScreen extends ConsumerWidget {
                     child: Text('Delete all',
                         style: TextStyle(color: p.danger)),
                   ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 22),
+
+            const SectionLabel('Transcript library'),
+            const SizedBox(height: 8),
+            SurfaceCard(
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const TranscriptLibraryScreen(),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.school_rounded, color: p.accent),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Parsed transcripts',
+                          style: tt.bodyMedium
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Import, review, compare GPA and export your records',
+                          style: tt.bodySmall?.copyWith(color: p.textTertiary),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.chevron_right_rounded, color: p.textTertiary),
                 ],
               ),
             ),
